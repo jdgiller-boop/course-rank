@@ -1,0 +1,1828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <title>Course Rank</title>
+  <meta name="description" content="Rank the golf courses you've played, build your bucket list, and see how your group rates them."/>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#3a6644"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Course Rank"/>
+  <link rel="apple-touch-icon" href="icon-192.png"/>
+  <link rel="apple-touch-startup-image" href="icon-512.png"/>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+  <!-- React via CDN (no build step needed) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=Libre+Baskerville:ital@0;1&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body,#root{height:100%;}
+    body{background:#f2ece0;font-family:'Libre Baskerville',Georgia,serif;color:#2a2a24;}
+    .rc:hover{background:#f0f7f2!important;border-color:#3a6644!important;}
+    input,button{font-family:inherit;}
+    /* iOS safe area — respects notch and Dynamic Island */
+    .app{
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 20px);
+    }
+    /* Full screen feel when installed as PWA */
+    @media (display-mode: standalone) {
+      body { overscroll-behavior: none; }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+// ============================================================
+//  🔧 PASTE YOUR FIREBASE CONFIG HERE
+//  Firebase Console → Project Settings → Your Apps → Web App
+// ============================================================
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBiHUkr-ez6_zFf8NS-hgNSaeeY5TrV5ks",
+  authDomain:        "course-rank-9ea2d.firebaseapp.com",
+  projectId:         "course-rank-9ea2d",
+  storageBucket:     "course-rank-9ea2d.firebasestorage.app",
+  messagingSenderId: "778302590453",
+  appId:             "1:778302590453:web:904e89e5784aeb82eca4bc"
+};
+// ============================================================
+
+const PRESET_COURSES = [
+  { id:"pine-valley", name:"Pine Valley Golf Club", location:"Pine Valley, NJ", lists:["gd_us","gm_us"] },
+  { id:"augusta-national", name:"Augusta National Golf Club", location:"Augusta, GA", lists:["gd_us","gm_us"] },
+  { id:"cypress-point", name:"Cypress Point Club", location:"Pebble Beach, CA", lists:["gd_us","gm_us"] },
+  { id:"shinnecock-hills", name:"Shinnecock Hills Golf Club", location:"Southampton, NY", lists:["gd_us","gm_us"] },
+  { id:"oakmont", name:"Oakmont Country Club", location:"Oakmont, PA", lists:["gd_us","gm_us"] },
+  { id:"merion-east", name:"Merion Golf Club – East Course", location:"Ardmore, PA", lists:["gd_us","gm_us"] },
+  { id:"national-golf-links", name:"National Golf Links of America", location:"Southampton, NY", lists:["gd_us","gm_us"] },
+  { id:"sand-hills", name:"Sand Hills Golf Club", location:"Mullen, NE", lists:["gd_us","gm_us"] },
+  { id:"pebble-beach", name:"Pebble Beach Golf Links", location:"Pebble Beach, CA", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"riviera", name:"Riviera Country Club", location:"Pacific Palisades, CA", lists:["gd_us","gm_us"] },
+  { id:"winged-foot-west", name:"Winged Foot Golf Club – West", location:"Mamaroneck, NY", lists:["gd_us","gm_us"] },
+  { id:"chicago-gc", name:"Chicago Golf Club", location:"Wheaton, IL", lists:["gd_us","gm_us"] },
+  { id:"crystal-downs", name:"Crystal Downs Country Club", location:"Frankfort, MI", lists:["gd_us","gm_us"] },
+  { id:"fishers-island", name:"Fishers Island Club", location:"Fishers Island, NY", lists:["gd_us","gm_us"] },
+  { id:"somerset-hills", name:"Somerset Hills Country Club", location:"Bernardsville, NJ", lists:["gd_us","gm_us"] },
+  { id:"seminole", name:"Seminole Golf Club", location:"Juno Beach, FL", lists:["gd_us","gm_us"] },
+  { id:"prairie-dunes", name:"Prairie Dunes Country Club", location:"Hutchinson, KS", lists:["gd_us","gm_us"] },
+  { id:"la-cc-north", name:"Los Angeles Country Club – North", location:"Los Angeles, CA", lists:["gd_us","gm_us"] },
+  { id:"quaker-ridge", name:"Quaker Ridge Golf Club", location:"Scarsdale, NY", lists:["gd_us","gm_us"] },
+  { id:"shoreacres", name:"Shoreacres", location:"Lake Bluff, IL", lists:["gd_us","gm_us"] },
+  { id:"garden-city", name:"Garden City Golf Club", location:"Garden City, NY", lists:["gd_us","gm_us"] },
+  { id:"maidstone", name:"Maidstone Club", location:"East Hampton, NY", lists:["gd_us","gm_us"] },
+  { id:"camargo", name:"Camargo Club", location:"Indian Hill, OH", lists:["gd_us","gm_us"] },
+  { id:"medinah-3", name:"Medinah Country Club – No. 3", location:"Medinah, IL", lists:["gd_us","gm_us"] },
+  { id:"peachtree", name:"Peachtree Golf Club", location:"Atlanta, GA", lists:["gd_us","gm_us"] },
+  { id:"southern-hills", name:"Southern Hills Country Club", location:"Tulsa, OK", lists:["gd_us","gm_us"] },
+  { id:"kittansett", name:"Kittansett Club", location:"Marion, MA", lists:["gd_us","gm_us"] },
+  { id:"olympic-lake", name:"Olympic Club – Lake Course", location:"San Francisco, CA", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"bandon-dunes", name:"Bandon Dunes", location:"Bandon, OR", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"pacific-dunes", name:"Pacific Dunes", location:"Bandon, OR", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"muirfield-village", name:"Muirfield Village Golf Club", location:"Dublin, OH", lists:["gd_us","gm_us"] },
+  { id:"the-country-club", name:"The Country Club", location:"Brookline, MA", lists:["gd_us","gm_us"] },
+  { id:"alotian", name:"Alotian Club", location:"Roland, AR", lists:["gd_us","gm_us"] },
+  { id:"ohoopee", name:"Ohoopee Match Club", location:"Cobbtown, GA", lists:["gd_us","gm_us"] },
+  { id:"wade-hampton", name:"Wade Hampton Golf Club", location:"Cashiers, NC", lists:["gd_us","gm_us"] },
+  { id:"victoria-national", name:"Victoria National Golf Club", location:"Newburgh, IN", lists:["gd_us","gm_us"] },
+  { id:"butler-national", name:"Butler National Golf Club", location:"Oak Brook, IL", lists:["gd_us"] },
+  { id:"spyglass-hill", name:"Spyglass Hill Golf Course", location:"Pebble Beach, CA", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"pasatiempo", name:"Pasatiempo Golf Club", location:"Santa Cruz, CA", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"tpc-sawgrass", name:"TPC Sawgrass – Players Stadium", location:"Ponte Vedra Beach, FL", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"whistling-straits", name:"Whistling Straits – Straits Course", location:"Sheboygan, WI", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"kiawah-ocean", name:"Kiawah Island – Ocean Course", location:"Kiawah Island, SC", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"bethpage-black", name:"Bethpage Black", location:"Farmingdale, NY", lists:["gd_us","gm_us","gd_pub"] },
+  { id:"wannamoisett", name:"Wannamoisett Country Club", location:"Rumford, RI", lists:["gd_us","gm_us"] },
+  { id:"plainfield", name:"Plainfield Country Club", location:"Edison, NJ", lists:["gd_us","gm_us"] },
+  { id:"nanea", name:"Nanea Golf Club", location:"Kailua-Kona, HI", lists:["gd_us","gm_us"] },
+  { id:"castle-pines", name:"Castle Pines Golf Club", location:"Castle Rock, CO", lists:["gd_us","gm_us"] },
+  { id:"piping-rock", name:"Piping Rock Club", location:"Locust Valley, NY", lists:["gd_us"] },
+  { id:"shooting-star", name:"Shooting Star Golf Club", location:"Jackson, WY", lists:["gd_us"] },
+  { id:"hudson-national", name:"Hudson National Golf Club", location:"Croton-on-Hudson, NY", lists:["gd_us","gm_us"] },
+  { id:"the-lido", name:"The Lido", location:"Nekoosa, WI", lists:["gd_us","gm_us"] },
+  { id:"interlachen", name:"Interlachen Country Club", location:"Edina, MN", lists:["gd_us","gm_us"] },
+  { id:"crooked-stick", name:"Crooked Stick Golf Club", location:"Carmel, IN", lists:["gd_us","gm_us"] },
+  { id:"east-lake", name:"East Lake Golf Club", location:"Atlanta, GA", lists:["gd_us","gm_us"] },
+  { id:"conway-farms", name:"Conway Farms Golf Club", location:"Lake Forest, IL", lists:["gd_us","gm_us"] },
+  { id:"sleepy-hollow", name:"Sleepy Hollow Country Club", location:"Scarborough, NY", lists:["gd_us","gm_us"] },
+  { id:"chevy-chase", name:"Chevy Chase Club", location:"Chevy Chase, MD", lists:["gd_us","gm_us"] },
+  { id:"old-sandwich", name:"Old Sandwich Golf Club", location:"Plymouth, MA", lists:["gd_us","gm_us"] },
+  { id:"friars-head", name:"Friar's Head", location:"Baiting Hollow, NY", lists:["gd_us","gm_us"] },
+  { id:"saucon-valley-old", name:"Saucon Valley Country Club – Old Course", location:"Bethlehem, PA", lists:["gd_us","gm_us"] },
+  { id:"aronimink", name:"Aronimink Golf Club", location:"Newtown Square, PA", lists:["gd_us","gm_us"] },
+  { id:"burning-tree", name:"Burning Tree Club", location:"Bethesda, MD", lists:["gd_us","gm_us"] },
+  { id:"cal-club", name:"California Golf Club of San Francisco", location:"South San Francisco, CA", lists:["gd_us","gm_us"] },
+  { id:"caprock-ranch", name:"CapRock Ranch", location:"Valentine, NE", lists:["gd_us","gm_us"] },
+  { id:"congressional-blue", name:"Congressional Country Club – Blue Course", location:"Bethesda, MD", lists:["gd_us","gm_us"] },
+  { id:"cc-north-carolina", name:"Country Club of North Carolina – Dogwood", location:"Pinehurst, NC", lists:["gd_us","gm_us"] },
+  { id:"valhalla", name:"Valhalla Golf Club", location:"Louisville, KY", lists:["gd_us","gm_us"] },
+  { id:"calusa-pines", name:"Calusa Pines Golf Club", location:"Naples, FL", lists:["gd_us","gm_us"] },
+  { id:"long-cove", name:"Long Cove Club", location:"Hilton Head, SC", lists:["gd_us","gm_us"] },
+  { id:"inverness", name:"Inverness Club", location:"Toledo, OH", lists:["gd_us","gm_us"] },
+  { id:"ladera", name:"Ladera Golf Club", location:"Thermal, CA", lists:["gd_us"] },
+  { id:"scioto", name:"Scioto Country Club", location:"Columbus, OH", lists:["gd_us","gm_us"] },
+  { id:"the-bridge", name:"The Bridge", location:"Bridgehampton, NY", lists:["gd_us","gm_us"] },
+  { id:"mossy-oak", name:"Mossy Oak Golf Club", location:"West Point, MS", lists:["gd_us","gm_us"] },
+  { id:"ocean-forest", name:"Ocean Forest Golf Club", location:"Sea Island, GA", lists:["gd_us","gm_us"] },
+  { id:"caves-valley", name:"Caves Valley Golf Club", location:"Owings Mills, MD", lists:["gd_us","gm_us"] },
+  { id:"double-eagle", name:"Double Eagle Club", location:"Galena, OH", lists:["gm_us"] },
+  { id:"yeamans-hall", name:"Yeamans Hall Club", location:"Hanahan, SC", lists:["gd_us","gm_us"] },
+  { id:"holston-hills", name:"Holston Hills Country Club", location:"Knoxville, TN", lists:["gd_us","gm_us"] },
+  { id:"jupiter-hills", name:"Jupiter Hills Club – Hills Course", location:"Tequesta, FL", lists:["gd_us","gm_us"] },
+  { id:"winged-foot-east", name:"Winged Foot Golf Club – East", location:"Mamaroneck, NY", lists:["gd_us"] },
+  { id:"bob-olink", name:"Bob O'Link Golf Club", location:"Highland Park, IL", lists:["gd_us","gm_us"] },
+  { id:"secession", name:"Secession Golf Club", location:"Beaufort, SC", lists:["gd_us","gm_us"] },
+  { id:"gc-tennessee", name:"Golf Club of Tennessee", location:"Kingston Springs, TN", lists:["gd_us"] },
+  { id:"old-barnwell", name:"Old Barnwell", location:"Barnwell, SC", lists:["gm_us"] },
+  { id:"shoal-creek", name:"Shoal Creek", location:"Shoal Creek, AL", lists:["gd_us","gm_us"] },
+  { id:"baltimore-five-farms", name:"Baltimore Country Club – Five Farms East", location:"Timonium, MD", lists:["gd_us","gm_us"] },
+  { id:"gulph-mills", name:"Gulph Mills Golf Club", location:"King of Prussia, PA", lists:["gd_us"] },
+  { id:"cassique", name:"Kiawah Island – Cassique", location:"Kiawah Island, SC", lists:["gd_us"] },
+  { id:"stanford-golf", name:"Stanford University Golf Course", location:"Stanford, CA", lists:["gd_us"] },
+  { id:"palmetto", name:"Palmetto Golf Club", location:"Aiken, SC", lists:["gd_us","gm_us"] },
+  { id:"philadelphia-cricket", name:"Philadelphia Cricket Club – St. Martins", location:"Philadelphia, PA", lists:["gd_us","gm_us"] },
+  { id:"merion-west", name:"Merion Golf Club – West Course", location:"Ardmore, PA", lists:["gd_us"] },
+  { id:"pinehurst-2", name:"Pinehurst No. 2", location:"Pinehurst, NC", lists:["gd_pub","gm_us"] },
+  { id:"sand-valley-wi", name:"Sand Valley", location:"Nekoosa, WI", lists:["gd_pub","gm_us"] },
+  { id:"erin-hills", name:"Erin Hills", location:"Hartford, WI", lists:["gd_pub","gm_us"] },
+  { id:"cabot-cliffs", name:"Cabot Cliffs", location:"Inverness, Nova Scotia", lists:["gd_pub","gd_world"] },
+  { id:"cabot-links", name:"Cabot Links", location:"Inverness, Nova Scotia", lists:["gd_pub","gd_world"] },
+  { id:"harbour-town", name:"Harbour Town Golf Links", location:"Hilton Head, SC", lists:["gd_pub","gm_us"] },
+  { id:"bandon-trails", name:"Bandon Trails", location:"Bandon, OR", lists:["gd_pub","gm_us"] },
+  { id:"streamsong-red", name:"Streamsong Red", location:"Streamsong, FL", lists:["gd_pub","gm_us"] },
+  { id:"streamsong-blue", name:"Streamsong Blue", location:"Streamsong, FL", lists:["gd_pub"] },
+  { id:"streamsong-black", name:"Streamsong Black", location:"Streamsong, FL", lists:["gd_pub"] },
+  { id:"torrey-pines-south", name:"Torrey Pines – South Course", location:"La Jolla, CA", lists:["gd_pub","gm_us"] },
+  { id:"old-macdonald", name:"Old Macdonald", location:"Bandon, OR", lists:["gd_pub","gm_us"] },
+  { id:"sheep-ranch", name:"Sheep Ranch", location:"Bandon, OR", lists:["gd_pub"] },
+  { id:"mammoth-dunes", name:"Mammoth Dunes", location:"Nekoosa, WI", lists:["gd_pub","gm_us"] },
+  { id:"sedge-valley", name:"Sedge Valley", location:"Nekoosa, WI", lists:["gd_pub"] },
+  { id:"chambers-bay", name:"Chambers Bay", location:"University Place, WA", lists:["gd_pub","gm_us"] },
+  { id:"whistling-straits-irish", name:"Whistling Straits – Irish Course", location:"Sheboygan, WI", lists:["gd_pub"] },
+  { id:"blackwolf-river", name:"Blackwolf Run – River Course", location:"Kohler, WI", lists:["gd_pub"] },
+  { id:"blackwolf-meadow", name:"Blackwolf Run – Meadow Valleys", location:"Kohler, WI", lists:["gd_pub"] },
+  { id:"shadow-creek", name:"Shadow Creek", location:"North Las Vegas, NV", lists:["gd_pub"] },
+  { id:"tpc-scottsdale-stadium", name:"TPC Scottsdale – Stadium Course", location:"Scottsdale, AZ", lists:["gd_pub"] },
+  { id:"lawsonia-links", name:"Lawsonia Links", location:"Green Lake, WI", lists:["gd_pub","gm_us"] },
+  { id:"prairie-club-dunes", name:"Prairie Club – Dunes Course", location:"Valentine, NE", lists:["gd_pub"] },
+  { id:"prairie-club-pines", name:"Prairie Club – Pines Course", location:"Valentine, NE", lists:["gd_pub"] },
+  { id:"tobacco-road", name:"Tobacco Road Golf Club", location:"Sanford, NC", lists:["gd_pub","gm_us"] },
+  { id:"gamble-sands", name:"Gamble Sands", location:"Brewster, WA", lists:["gd_pub","gm_us"] },
+  { id:"black-desert", name:"Black Desert Resort", location:"Ivins, UT", lists:["gd_pub"] },
+  { id:"pelican-hill-south", name:"Pelican Hill Golf Club – Ocean South", location:"Newport Coast, CA", lists:["gd_pub"] },
+  { id:"half-moon-bay-old", name:"Half Moon Bay Golf Links – Old Course", location:"Half Moon Bay, CA", lists:["gd_pub"] },
+  { id:"pinehurst-4", name:"Pinehurst No. 4", location:"Pinehurst, NC", lists:["gd_pub"] },
+  { id:"pinehurst-8", name:"Pinehurst No. 8", location:"Pinehurst, NC", lists:["gd_pub"] },
+  { id:"pinehurst-10", name:"Pinehurst No. 10", location:"Pinehurst, NC", lists:["gd_pub","gm_us"] },
+  { id:"wynn-golf", name:"Wynn Golf Club", location:"Las Vegas, NV", lists:["gd_pub"] },
+  { id:"pga-west-stadium", name:"PGA West – TPC Stadium Course", location:"La Quinta, CA", lists:["gd_pub"] },
+  { id:"spanish-bay", name:"The Links at Spanish Bay", location:"Pebble Beach, CA", lists:["gd_pub"] },
+  { id:"cascata", name:"Cascata Golf Club", location:"Boulder City, NV", lists:["gd_pub"] },
+  { id:"wolf-creek", name:"Wolf Creek Golf Club", location:"Mesquite, NV", lists:["gd_pub"] },
+  { id:"sahalee-ns", name:"Sahalee Country Club – North/South", location:"Sammamish, WA", lists:["gd_pub"] },
+  { id:"sea-island-seaside", name:"Sea Island Golf Club – Seaside", location:"St. Simons Island, GA", lists:["gd_pub","gm_us"] },
+  { id:"sea-island-plantation", name:"Sea Island Golf Club – Plantation", location:"St. Simons Island, GA", lists:["gd_pub"] },
+  { id:"arcadia-bluffs", name:"Arcadia Bluffs Golf Club", location:"Arcadia, MI", lists:["gd_pub"] },
+  { id:"bay-harbor", name:"Bay Harbor Golf Club – Links", location:"Bay Harbor, MI", lists:["gd_pub"] },
+  { id:"boothbay-harbor", name:"Boothbay Harbor Country Club", location:"Boothbay Harbor, ME", lists:["gd_pub"] },
+  { id:"cog-hill-4", name:"Cog Hill Golf & Country Club – No. 4", location:"Lemont, IL", lists:["gd_pub"] },
+  { id:"sweetens-cove", name:"Sweetens Cove Golf Club", location:"South Pittsburg, TN", lists:["gd_pub","gm_us"] },
+  { id:"fallen-oak", name:"Fallen Oak", location:"Saucier, MS", lists:["gd_pub"] },
+  { id:"karsten-creek", name:"Karsten Creek Golf Club", location:"Stillwater, OK", lists:["gd_pub","gm_us"] },
+  { id:"french-lick-pete-dye", name:"French Lick Resort – Pete Dye Course", location:"French Lick, IN", lists:["gd_pub"] },
+  { id:"greenbrier-old-white", name:"The Greenbrier – Old White TPC", location:"White Sulphur Springs, WV", lists:["gd_pub"] },
+  { id:"pinehurst-6", name:"Pinehurst No. 6", location:"Pinehurst, NC" },
+  { id:"pinehurst-7", name:"Pinehurst No. 7", location:"Pinehurst, NC" },
+  { id:"quail-hollow", name:"Quail Hollow Club", location:"Charlotte, NC", lists:["gm_us"] },
+  { id:"dismal-river-red", name:"Dismal River Golf Club – Red Course", location:"Mullen, NE", lists:["gd_us"] },
+  { id:"dismal-river-blue", name:"Dismal River Golf Club – Blue Course", location:"Mullen, NE" },
+  { id:"mcarthur-gc", name:"McArthur Golf Club", location:"Hobe Sound, FL", lists:["gd_us"] },
+  { id:"bears-club", name:"The Bear's Club", location:"Jupiter, FL" },
+  { id:"medalist", name:"The Medalist Golf Club", location:"Hobe Sound, FL" },
+  { id:"ballyhack", name:"Ballyhack Golf Club", location:"Roanoke, VA", lists:["gm_us"] },
+  { id:"kingsmill-river", name:"Kingsmill Resort – River Course", location:"Williamsburg, VA" },
+  { id:"loch-lloyd", name:"Loch Lloyd Country Club", location:"Belton, MO" },
+  { id:"old-barnwell-barnwell", name:"Old Barnwell", location:"Barnwell, SC", lists:["gm_us"] },
+  { id:"atlanta-athletic-club", name:"Atlanta Athletic Club – Highlands", location:"Johns Creek, GA" },
+  { id:"piedmont-driving-club", name:"Piedmont Driving Club", location:"Atlanta, GA" },
+  { id:"country-club-of-columbus", name:"Country Club of Columbus", location:"Columbus, GA" },
+  { id:"sea-island-retreat", name:"Sea Island Golf Club – Retreat", location:"St. Simons Island, GA" },
+  { id:"barnsley-resort", name:"Barnsley Resort", location:"Adairsville, GA" },
+  { id:"reynolds-lake-oconee-great-waters", name:"Reynolds Lake Oconee – Great Waters", location:"Greensboro, GA" },
+  { id:"reynolds-lake-oconee-national", name:"Reynolds Lake Oconee – National", location:"Greensboro, GA" },
+  { id:"reynolds-lake-oconee-creek", name:"Reynolds Lake Oconee – Creek Club", location:"Greensboro, GA" },
+  { id:"cateechee", name:"Cateechee Golf Club", location:"Hartwell, GA" },
+  { id:"chateau-elan", name:"Chateau Elan Winery & Resort", location:"Braselton, GA" },
+  { id:"white-columns", name:"White Columns Golf Club", location:"Alpharetta, GA" },
+  { id:"golf-club-of-georgia", name:"Golf Club of Georgia", location:"Alpharetta, GA" },
+  { id:"augusta-cc", name:"Augusta Country Club", location:"Augusta, GA" },
+  { id:"forest-hills-gc", name:"Forest Hills Golf Club", location:"Augusta, GA" },
+  { id:"the-georgia-club", name:"The Georgia Club", location:"Statham, GA" },
+  { id:"mountain-lake", name:"Mountain Lake Club", location:"Lake Wales, FL" },
+  { id:"liberty-national", name:"Liberty National Golf Club", location:"Jersey City, NJ" },
+  { id:"tpc-blue-monster", name:"TPC Blue Monster at Doral", location:"Miami, FL" },
+  { id:"trump-national-doral-blue", name:"Trump National Doral – Blue Monster", location:"Miami, FL" },
+  { id:"bay-hill", name:"Bay Hill Club & Lodge", location:"Orlando, FL" },
+  { id:"lake-nona-gc", name:"Lake Nona Golf & Country Club", location:"Orlando, FL" },
+  { id:"isleworth", name:"Isleworth Golf & Country Club", location:"Windermere, FL" },
+  { id:"grand-cypress", name:"Grand Cypress Golf Club", location:"Orlando, FL" },
+  { id:"the-bear-gc", name:"The Bear's Club", location:"Jupiter, FL" },
+  { id:"tpc-sawgrass-valley", name:"TPC Sawgrass – Dye's Valley Course", location:"Ponte Vedra Beach, FL" },
+  { id:"tiburon-gold", name:"Tiburon Golf Club – Gold Course", location:"Naples, FL" },
+  { id:"tiburon-black", name:"Tiburon Golf Club – Black Course", location:"Naples, FL" },
+  { id:"naples-gc", name:"Naples Grande Golf Club", location:"Naples, FL" },
+  { id:"grey-oaks", name:"Grey Oaks Country Club", location:"Naples, FL" },
+  { id:"kiva-dunes", name:"Kiva Dunes Golf Club", location:"Gulf Shores, AL" },
+  { id:"kelly-plantation", name:"Kelly Plantation Golf Club", location:"Destin, FL" },
+  { id:"indian-creek", name:"Indian Creek Country Club", location:"Indian Creek, FL" },
+  { id:"wyndemere", name:"Wyndemere Country Club", location:"Naples, FL" },
+  { id:"bonita-bay-east", name:"Bonita Bay Club – East Course", location:"Bonita Springs, FL" },
+  { id:"the-club-pelican-bay", name:"The Club at Pelican Bay", location:"Naples, FL" },
+  { id:"south-florida-gc", name:"Club at Admirals Cove", location:"Jupiter, FL" },
+  { id:"the-floridian", name:"The Floridian Golf & Yacht Club", location:"Palm City, FL" },
+  { id:"medalist-gc", name:"Medalist Golf Club", location:"Hobe Sound, FL" },
+  { id:"mcarthur", name:"McArthur Golf Club", location:"Hobe Sound, FL" },
+  { id:"tpc-tampa-bay", name:"TPC Tampa Bay", location:"Lutz, FL" },
+  { id:"waterlefe", name:"WaterColor Inn & Golf", location:"Santa Rosa Beach, FL" },
+  { id:"lakewood-national", name:"Lakewood National Golf Club – Commander", location:"Bradenton, FL" },
+  { id:"pinehurst-5", name:"Pinehurst No. 5", location:"Pinehurst, NC" },
+  { id:"pinehurst-3", name:"Pinehurst No. 3", location:"Pinehurst, NC" },
+  { id:"mid-pines", name:"Mid Pines Inn & Golf Club", location:"Southern Pines, NC" },
+  { id:"pine-needles", name:"Pine Needles Lodge & Golf Club", location:"Southern Pines, NC", lists:["gd_pub"] },
+  { id:"the-pit", name:"The Pit Golf Links", location:"Pinehurst, NC" },
+  { id:"longleaf-gc", name:"Longleaf Golf & Country Club", location:"Southern Pines, NC" },
+  { id:"talamore", name:"Talamore Golf Resort", location:"Southern Pines, NC" },
+  { id:"tot-hill-farm", name:"Tot Hill Farm Golf Club", location:"Asheboro, NC" },
+  { id:"old-north-state", name:"Old North State Club", location:"New London, NC" },
+  { id:"grandfather-gc", name:"Grandfather Golf & Country Club", location:"Linville, NC" },
+  { id:"linville-gc", name:"Linville Golf Club", location:"Linville, NC" },
+  { id:"grove-park", name:"The Grove Park Inn – Donald Ross Course", location:"Asheville, NC" },
+  { id:"highland-creek", name:"Highland Creek Golf Club", location:"Charlotte, NC" },
+  { id:"cape-fear-cc", name:"Cape Fear Country Club", location:"Wilmington, NC" },
+  { id:"landfall-dye", name:"Landfall – Dye Course", location:"Wilmington, NC" },
+  { id:"bald-head-island", name:"Bald Head Island Club", location:"Bald Head Island, NC" },
+  { id:"eagle-point", name:"Eagle Point Golf Club", location:"Wilmington, NC" },
+  { id:"wachesaw", name:"Wachesaw Plantation Club", location:"Murrells Inlet, SC" },
+  { id:"forest-creek", name:"Forest Creek Golf Club – North", location:"Pinehurst, NC" },
+  { id:"pine-island-cc", name:"Pine Island Country Club", location:"Charlotte, NC" },
+  { id:"myers-park", name:"Myers Park Country Club", location:"Charlotte, NC" },
+  { id:"pebble-creek", name:"Pebble Creek Country Club", location:"Taylors, SC" },
+  { id:"palmetto-bluff", name:"Palmetto Bluff – Wilson Course", location:"Bluffton, SC" },
+  { id:"kiawah-osprey-point", name:"Kiawah Island – Osprey Point", location:"Kiawah Island, SC" },
+  { id:"kiawah-turtle-point", name:"Kiawah Island – Turtle Point", location:"Kiawah Island, SC" },
+  { id:"kiawah-cougar-point", name:"Kiawah Island – Cougar Point", location:"Kiawah Island, SC" },
+  { id:"wild-dunes-links", name:"Wild Dunes Resort – Links Course", location:"Isle of Palms, SC" },
+  { id:"the-creek-club", name:"The Creek Club", location:"Locust Valley, SC" },
+  { id:"country-club-of-charleston", name:"Country Club of Charleston", location:"Charleston, SC" },
+  { id:"charleston-national", name:"Charleston National Golf Club", location:"Mount Pleasant, SC" },
+  { id:"myrtle-beach-national", name:"Myrtle Beach National Golf Club", location:"Myrtle Beach, SC" },
+  { id:"tpc-myrtle-beach", name:"TPC Myrtle Beach", location:"Murrells Inlet, SC" },
+  { id:"pawleys-plantation", name:"Pawleys Plantation Golf & Country Club", location:"Pawleys Island, SC" },
+  { id:"caledonia-golf", name:"Caledonia Golf & Fish Club", location:"Pawleys Island, SC" },
+  { id:"true-blue", name:"True Blue Golf Club", location:"Pawleys Island, SC" },
+  { id:"dunes-golf", name:"The Dunes Golf & Beach Club", location:"Myrtle Beach, SC" },
+  { id:"grande-dunes", name:"Grande Dunes – Members Club", location:"Myrtle Beach, SC" },
+  { id:"haig-point", name:"Haig Point Club", location:"Daufuskie Island, SC" },
+  { id:"oldfields", name:"Oldfields Golf Links", location:"Aiken, SC" },
+  { id:"aiken-gc", name:"Aiken Golf Club", location:"Aiken, SC" },
+  { id:"river-course", name:"The River Course at Kiawah", location:"Kiawah Island, SC" },
+  { id:"sweetens-cove-tn", name:"Sweetens Cove Golf Club", location:"South Pittsburg, TN", lists:["gd_pub","gm_us"] },
+  { id:"honors-course", name:"The Honors Course", location:"Ooltewah, TN", lists:["gd_us","gm_us"] },
+  { id:"nashville-gc", name:"Nashville Golf & Athletic Club", location:"Nashville, TN" },
+  { id:"tennessee-gc", name:"Golf Club of Tennessee", location:"Kingston Springs, TN", lists:["gd_us"] },
+  { id:"governors-club", name:"Governors Club", location:"Brentwood, TN" },
+  { id:"springhouse-gc", name:"Springhouse Golf Club", location:"Nashville, TN" },
+  { id:"gaylord-springs", name:"Gaylord Springs Golf Links", location:"Nashville, TN" },
+  { id:"hermitage-gc", name:"Hermitage Golf Course", location:"Old Hickory, TN" },
+  { id:"the-grove", name:"The Grove", location:"College Grove, TN" },
+  { id:"dollywood-dreammore", name:"DreamMore Resort & Spa Golf", location:"Pigeon Forge, TN" },
+  { id:"rtj-oxmoor-valley", name:"RTJ Golf Trail – Oxmoor Valley", location:"Birmingham, AL" },
+  { id:"rtj-ross-bridge", name:"RTJ Golf Trail – Ross Bridge", location:"Hoover, AL" },
+  { id:"rtj-grand-national", name:"RTJ Golf Trail – Grand National", location:"Auburn, AL" },
+  { id:"rtj-silver-lakes", name:"RTJ Golf Trail – Silver Lakes", location:"Anniston, AL" },
+  { id:"rtj-cambrian-ridge", name:"RTJ Golf Trail – Cambrian Ridge", location:"Greenville, AL" },
+  { id:"rtj-highland-oaks", name:"RTJ Golf Trail – Highland Oaks", location:"Dothan, AL" },
+  { id:"rtj-magnolia-grove", name:"RTJ Golf Trail – Magnolia Grove", location:"Mobile, AL" },
+  { id:"rtj-lakewood", name:"RTJ Golf Trail – Lakewood", location:"Point Clear, AL" },
+  { id:"pursell-farms", name:"FarmLinks at Pursell Farms", location:"Sylacauga, AL" },
+  { id:"wicker-point", name:"Wicker Point Golf Club", location:"Guntersville, AL", lists:["gm_us"] },
+  { id:"fallen-oak-ms", name:"Fallen Oak", location:"Saucier, MS", lists:["gd_pub"] },
+  { id:"mystic-creek", name:"Mystic Creek Golf Club", location:"El Dorado Hills, MS" },
+  { id:"magnolia-grove", name:"Magnolia Grove Golf Course", location:"Mobile, AL" },
+  { id:"grand-bear", name:"Grand Bear Golf Course", location:"Saucier, MS" },
+  { id:"dancing-rabbit-oaks", name:"Dancing Rabbit Golf Club – Oaks", location:"Philadelphia, MS" },
+  { id:"dancing-rabbit-azaleas", name:"Dancing Rabbit Golf Club – Azaleas", location:"Philadelphia, MS" },
+  { id:"real-ballyshear", name:"Ballyshear Golf Links", location:"Bridgehampton, NY" },
+  { id:"virginia-cc", name:"Virginia Country Club", location:"Newport News, VA" },
+  { id:"colonial-cc-va", name:"Colonial Country Club", location:"Fort Worth, TX", lists:["gd_us"] },
+  { id:"kinloch", name:"Kinloch Golf Club", location:"Manakin-Sabot, VA", lists:["gm_us"] },
+  { id:"the-homestead-cascades", name:"The Homestead – Cascades Course", location:"Hot Springs, VA" },
+  { id:"the-homestead-old", name:"The Homestead – Old Course", location:"Hot Springs, VA" },
+  { id:"kingsmill-plantation", name:"Kingsmill Resort – Plantation Course", location:"Williamsburg, VA" },
+  { id:"ford-colony", name:"Ford's Colony – Blackheath Course", location:"Williamsburg, VA" },
+  { id:"hellbent", name:"Hellbent Golf Club", location:"Henderson, NC" },
+  { id:"idle-hour", name:"Idle Hour Country Club", location:"Lexington, KY" },
+  { id:"cave-hill", name:"Caves Valley Golf Club", location:"Owings Mills, MD", lists:["gd_us","gm_us"] },
+  { id:"keene-trace", name:"Keene Trace Golf Club – Championship", location:"Nicholasville, KY" },
+  { id:"horse-farm", name:"Thoroughbred Golf & Barrel House", location:"Midway, KY" },
+  { id:"whispering-pines", name:"Whispering Pines Golf Club", location:"Trinity, TX", lists:["gm_us"] },
+  { id:"austin-cc", name:"Austin Country Club", location:"Austin, TX" },
+  { id:"barton-creek-canyons", name:"Barton Creek – Fazio Canyons", location:"Austin, TX" },
+  { id:"barton-creek-foothills", name:"Barton Creek – Fazio Foothills", location:"Austin, TX" },
+  { id:"preston-trail", name:"Preston Trail Golf Club", location:"Dallas, TX" },
+  { id:"dallas-cc", name:"Dallas Country Club", location:"Dallas, TX" },
+  { id:"brook-hollow", name:"Brook Hollow Golf Club", location:"Dallas, TX" },
+  { id:"champions-cypress", name:"Champions Golf Club – Cypress Creek", location:"Houston, TX" },
+  { id:"memorial-park", name:"Memorial Park Golf Course", location:"Houston, TX", lists:["gd_pub"] },
+  { id:"the-club-at-carlton-woods", name:"The Club at Carlton Woods", location:"The Woodlands, TX" },
+  { id:"waterfall", name:"Waterfall Club", location:"Valley View, TX" },
+  { id:"old-american", name:"Old American Golf Club", location:"The Colony, TX" },
+  { id:"lajitas", name:"Lajitas Golf Resort – Black Jack's Crossing", location:"Lajitas, TX", lists:["gd_pub"] },
+  { id:"trinity-forest", name:"Trinity Forest Golf Club", location:"Dallas, TX" },
+  { id:"horseshoe-bay-apple", name:"Horseshoe Bay Resort – Apple Rock", location:"Horseshoe Bay, TX" },
+  { id:"the-clubs-of-kingwood", name:"The Clubs of Kingwood", location:"Kingwood, TX" },
+  { id:"rich-harvest", name:"Rich Harvest Farms", location:"Sugar Grove, IL" },
+  { id:"olympia-fields-north", name:"Olympia Fields Country Club – North", location:"Olympia Fields, IL" },
+  { id:"hazeltine", name:"Hazeltine National Golf Club", location:"Chaska, MN" },
+  { id:"tpc-twin-cities", name:"TPC Twin Cities", location:"Blaine, MN" },
+  { id:"the-loch-glen", name:"The Loch & The Glen Golf Course", location:"Stoughton, WI" },
+  { id:"giants-ridge-quarry", name:"Giants Ridge – Quarry Course", location:"Biwabik, MN", lists:["gd_pub"] },
+  { id:"big-cedar-ozarks", name:"Big Cedar Lodge – Ozarks National", location:"Ridgedale, MO", lists:["gd_pub"] },
+  { id:"terre-haute", name:"Terre Haute Country Club", location:"Terre Haute, IN" },
+  { id:"firestone-south", name:"Firestone Country Club – South", location:"Akron, OH" },
+  { id:"treesdale", name:"Treesdale Golf & Country Club", location:"Gibsonia, PA" },
+  { id:"arcadian-shores", name:"Arcadian Shores Golf Club", location:"Myrtle Beach, SC" },
+  { id:"wolverine-gc", name:"Wolverine Golf Club", location:"Howell, MI" },
+  { id:"cedar-rapids-cc", name:"Cedar Rapids Country Club", location:"Cedar Rapids, IA" },
+  { id:"forest-highlands-canyon", name:"Forest Highlands Golf Club – Canyon", location:"Flagstaff, AZ" },
+  { id:"troon-north-monument", name:"Troon North Golf Club – Monument", location:"Scottsdale, AZ" },
+  { id:"desert-mountain-cochise", name:"Desert Mountain Club – Cochise", location:"Scottsdale, AZ" },
+  { id:"estancia", name:"Estancia Club", location:"Scottsdale, AZ" },
+  { id:"whisper-rock-lower", name:"Whisper Rock Golf Club – Lower", location:"Scottsdale, AZ" },
+  { id:"whisper-rock-upper", name:"Whisper Rock Golf Club – Upper", location:"Scottsdale, AZ" },
+  { id:"we-ko-pa-saguaro", name:"We-Ko-Pa Golf Club – Saguaro", location:"Fort McDowell, AZ", lists:["gd_pub"] },
+  { id:"we-ko-pa-cholla", name:"We-Ko-Pa Golf Club – Cholla", location:"Fort McDowell, AZ" },
+  { id:"phoenix-cc", name:"Phoenix Country Club", location:"Phoenix, AZ" },
+  { id:"sand-hollow", name:"Sand Hollow Resort – Championship", location:"Hurricane, UT", lists:["gd_pub"] },
+  { id:"red-ledges", name:"Red Ledges Golf Club", location:"Heber City, UT" },
+  { id:"glenwild", name:"Glenwild Golf Club", location:"Park City, UT" },
+  { id:"teton-pines", name:"Teton Pines Country Club", location:"Jackson, WY" },
+  { id:"banff-springs", name:"Fairmont Banff Springs Golf Course", location:"Banff, Alberta", lists:["gd_pub"] },
+  { id:"fairmont-jasper", name:"Fairmont Jasper Park Lodge GC", location:"Jasper, Alberta" },
+  { id:"highlands-links-ns", name:"Highlands Links", location:"Ingonish, Nova Scotia", lists:["gd_world"] },
+  { id:"predator-ridge", name:"Predator Ridge Golf Resort", location:"Vernon, BC" },
+  { id:"okanagan-gc", name:"Okanagan Golf Club – Bear Course", location:"Kelowna, BC" },
+  { id:"cobble-beach", name:"Cobble Beach Golf Links", location:"Owen Sound, Ontario" },
+  { id:"hautes-plaines", name:"Club de golf Hautes-Plaines", location:"Quebec" },
+  { id:"st-andrews-old", name:"St Andrews Links – Old Course", location:"St Andrews, Scotland", lists:["gd_world"] },
+  { id:"muirfield", name:"Muirfield", location:"Gullane, Scotland", lists:["gd_world"] },
+  { id:"royal-dornoch", name:"Royal Dornoch Golf Club", location:"Dornoch, Scotland", lists:["gd_world"] },
+  { id:"turnberry-ailsa", name:"Turnberry – Ailsa Course", location:"Turnberry, Scotland", lists:["gd_world"] },
+  { id:"carnoustie", name:"Carnoustie Golf Links", location:"Carnoustie, Scotland", lists:["gd_world"] },
+  { id:"kingsbarns", name:"Kingsbarns Golf Links", location:"St Andrews, Scotland", lists:["gd_world"] },
+  { id:"cruden-bay", name:"Cruden Bay Golf Club", location:"Cruden Bay, Scotland", lists:["gd_world"] },
+  { id:"nairn", name:"Nairn Golf Club", location:"Nairn, Scotland", lists:["gd_world"] },
+  { id:"prestwick", name:"Prestwick Golf Club", location:"Prestwick, Scotland", lists:["gd_world"] },
+  { id:"western-gailes", name:"Western Gailes Golf Club", location:"Irvine, Scotland", lists:["gd_world"] },
+  { id:"dumbarnie-links", name:"Dumbarnie Links", location:"Fife, Scotland", lists:["gd_world"] },
+  { id:"north-berwick-west", name:"North Berwick Golf Club – West Links", location:"North Berwick, Scotland", lists:["gd_world"] },
+  { id:"machrihanish", name:"Machrihanish Golf Club", location:"Machrihanish, Scotland", lists:["gd_world"] },
+  { id:"machrihanish-dunes", name:"Machrihanish Dunes Golf Club", location:"Machrihanish, Scotland", lists:["gd_world"] },
+  { id:"trump-turnberry-king", name:"Trump Turnberry – King Robert the Bruce", location:"Turnberry, Scotland", lists:["gd_world"] },
+  { id:"royal-dornoch-struie", name:"Royal Dornoch – Struie Course", location:"Dornoch, Scotland", lists:["gd_world"] },
+  { id:"st-andrews-new", name:"St Andrews Links – New Course", location:"St Andrews, Scotland", lists:["gd_world"] },
+  { id:"st-andrews-castle", name:"St Andrews Links – Castle Course", location:"St Andrews, Scotland", lists:["gd_world"] },
+  { id:"dundonald-links", name:"Dundonald Links", location:"Irvine, Scotland" },
+  { id:"trump-aberdeen", name:"Trump International Golf Links Scotland", location:"Aberdeen, Scotland" },
+  { id:"gleneagles-kings", name:"Gleneagles – King's Course", location:"Auchterarder, Scotland" },
+  { id:"gleneagles-queens", name:"Gleneagles – Queen's Course", location:"Auchterarder, Scotland" },
+  { id:"gleneagles-pga-centenary", name:"Gleneagles – PGA Centenary Course", location:"Auchterarder, Scotland" },
+  { id:"loch-lomond", name:"Loch Lomond Golf Club", location:"Luss, Scotland" },
+  { id:"castle-stuart", name:"Castle Stuart Golf Links", location:"Inverness, Scotland" },
+  { id:"muirfield-old", name:"Muirfield – The Honourable Company", location:"Gullane, Scotland" },
+  { id:"royal-troon", name:"Royal Troon Golf Club – Old Course", location:"Troon, Scotland", lists:["gd_world"] },
+  { id:"musselburgh", name:"Musselburgh Links – The Old Golf Course", location:"Musselburgh, Scotland" },
+  { id:"brora", name:"Brora Golf Club", location:"Brora, Scotland" },
+  { id:"golspie", name:"Golspie Golf Club", location:"Golspie, Scotland" },
+  { id:"gullane-1", name:"Gullane Golf Club – No. 1", location:"Gullane, Scotland" },
+  { id:"lundin-links", name:"Lundin Links Golf Club", location:"Lundin Links, Scotland" },
+  { id:"leven-links", name:"Leven Links", location:"Leven, Scotland" },
+  { id:"elie", name:"Golf House Club – Elie", location:"Elie, Scotland" },
+  { id:"ladybank", name:"Ladybank Golf Club", location:"Ladybank, Scotland" },
+  { id:"royal-burgess", name:"Royal Burgess Golfing Society", location:"Edinburgh, Scotland" },
+  { id:"muirfield-new", name:"The New Club", location:"St Andrews, Scotland" },
+  { id:"sunningdale-old", name:"Sunningdale Golf Club – Old Course", location:"Sunningdale, England", lists:["gd_world"] },
+  { id:"sunningdale-new", name:"Sunningdale Golf Club – New Course", location:"Sunningdale, England", lists:["gd_world"] },
+  { id:"royal-birkdale", name:"Royal Birkdale Golf Club", location:"Southport, England", lists:["gd_world"] },
+  { id:"royal-liverpool", name:"Royal Liverpool Golf Club – Hoylake", location:"Hoylake, England", lists:["gd_world"] },
+  { id:"royal-st-georges", name:"Royal St George's Golf Club", location:"Sandwich, England", lists:["gd_world"] },
+  { id:"woodhall-spa", name:"Woodhall Spa – Hotchkin Course", location:"Woodhall Spa, England", lists:["gd_world"] },
+  { id:"saunton-east", name:"Saunton Golf Club – East Course", location:"Saunton, England", lists:["gd_world"] },
+  { id:"notts-hollinwell", name:"Notts Golf Club – Hollinwell", location:"Kirkby in Ashfield, England", lists:["gd_world"] },
+  { id:"royal-cinque-ports", name:"Royal Cinque Ports Golf Club", location:"Deal, England" },
+  { id:"prince-s-gc", name:"Prince's Golf Club", location:"Sandwich, England" },
+  { id:"royal-west-norfolk", name:"Royal West Norfolk Golf Club", location:"Brancaster, England" },
+  { id:"formby", name:"Formby Golf Club", location:"Formby, England" },
+  { id:"hillside", name:"Hillside Golf Club", location:"Southport, England" },
+  { id:"royal-lytham", name:"Royal Lytham & St Annes Golf Club", location:"Lytham St Annes, England", lists:["gd_world"] },
+  { id:"sandwich-bay", name:"Princes Golf Club – Shore & Dunes", location:"Sandwich, England" },
+  { id:"st-enodoc", name:"St Enodoc Golf Club", location:"Rock, England" },
+  { id:"royal-north-devon", name:"Royal North Devon Golf Club", location:"Westward Ho!, England" },
+  { id:"burnham-and-berrow", name:"Burnham and Berrow Golf Club", location:"Burnham-on-Sea, England" },
+  { id:"st-andrews-royal-ancient", name:"Royal & Ancient Golf Club of St Andrews", location:"St Andrews, Scotland" },
+  { id:"walton-heath-old", name:"Walton Heath Golf Club – Old Course", location:"Tadworth, England" },
+  { id:"worlington", name:"Royal Worlington & Newmarket Golf Club", location:"Worlington, England" },
+  { id:"wentworth-west", name:"Wentworth Club – West Course", location:"Virginia Water, England" },
+  { id:"rye", name:"Rye Golf Club", location:"Rye, England" },
+  { id:"royal-ashdown-forest", name:"Royal Ashdown Forest Golf Club", location:"Forest Row, England" },
+  { id:"st-george-hill", name:"St George's Hill Golf Club", location:"Weybridge, England" },
+  { id:"berkshire-red", name:"The Berkshire Golf Club – Red Course", location:"Ascot, England" },
+  { id:"swinley-forest", name:"Swinley Forest Golf Club", location:"Ascot, England" },
+  { id:"west-sussex", name:"West Sussex Golf Club", location:"Pulborough, England" },
+  { id:"southerness", name:"Southerness Golf Club", location:"Dumfries, Scotland" },
+  { id:"royal-county-down", name:"Royal County Down Golf Club", location:"Newcastle, N. Ireland", lists:["gd_world"] },
+  { id:"royal-portrush-dunluce", name:"Royal Portrush Golf Club – Dunluce", location:"Portrush, N. Ireland", lists:["gd_world"] },
+  { id:"royal-portrush-valley", name:"Royal Portrush Golf Club – Valley Links", location:"Portrush, N. Ireland", lists:["gd_world"] },
+  { id:"ballybunion-old", name:"Ballybunion Golf Club – Old Course", location:"Ballybunion, Ireland", lists:["gd_world"] },
+  { id:"ballybunion-cashen", name:"Ballybunion Golf Club – Cashen Course", location:"Ballybunion, Ireland", lists:["gd_world"] },
+  { id:"lahinch", name:"Lahinch Golf Club", location:"Lahinch, Ireland", lists:["gd_world"] },
+  { id:"waterville", name:"Waterville Golf Links", location:"Waterville, Ireland", lists:["gd_world"] },
+  { id:"old-head", name:"Old Head Golf Links", location:"Kinsale, Ireland", lists:["gd_world"] },
+  { id:"portmarnock", name:"Portmarnock Golf Club", location:"Portmarnock, Ireland", lists:["gd_world"] },
+  { id:"portmarnock-links", name:"Portmarnock Hotel & Golf Links", location:"Portmarnock, Ireland", lists:["gd_world"] },
+  { id:"doonbeg", name:"Doonbeg Golf Club", location:"Doonbeg, Ireland", lists:["gd_world"] },
+  { id:"county-sligo", name:"County Sligo Golf Club", location:"Rosses Point, Ireland", lists:["gd_world"] },
+  { id:"european-club", name:"The European Club", location:"Brittas Bay, Ireland", lists:["gd_world"] },
+  { id:"tralee", name:"Tralee Golf Club", location:"Tralee, Ireland" },
+  { id:"royal-dublin", name:"Royal Dublin Golf Club", location:"Dublin, Ireland" },
+  { id:"st-patricks-links", name:"St. Patrick's Links", location:"Rosapenna, Ireland" },
+  { id:"rosapenna-sandy-hills", name:"Rosapenna Golf Resort – Sandy Hills", location:"Rosapenna, Ireland" },
+  { id:"mount-juliet", name:"Mount Juliet Golf Course", location:"Thomastown, Ireland" },
+  { id:"adare-manor", name:"Adare Manor Golf Club", location:"Adare, Ireland" },
+  { id:"k-club-palmer", name:"K Club – Palmer Course", location:"Straffan, Ireland" },
+  { id:"killarney-killeen", name:"Killarney Golf Club – Killeen Course", location:"Killarney, Ireland" },
+  { id:"ballyliffin-glashedy", name:"Ballyliffin Golf Club – Glashedy Links", location:"Ballyliffin, Ireland" },
+  { id:"portstewart-strand", name:"Portstewart Golf Club – Strand Course", location:"Portstewart, N. Ireland" },
+  { id:"castlerock", name:"Castlerock Golf Club", location:"Castlerock, N. Ireland" },
+  { id:"enniscrone", name:"Enniscrone Golf Club", location:"Enniscrone, Ireland" },
+  { id:"royal-porthcawl", name:"Royal Porthcawl Golf Club", location:"Porthcawl, Wales", lists:["gd_world"] },
+  { id:"pennard", name:"Pennard Golf Club", location:"Swansea, Wales", lists:["gd_world"] },
+  { id:"nefyn-district", name:"Nefyn & District Golf Club", location:"Nefyn, Wales", lists:["gd_world"] },
+  { id:"aberdovey", name:"Aberdovey Golf Club", location:"Aberdovey, Wales" },
+  { id:"harlech", name:"Royal St David's Golf Club", location:"Harlech, Wales" },
+  { id:"tenby", name:"Tenby Golf Club", location:"Tenby, Wales" },
+  { id:"royal-melbourne-west", name:"Royal Melbourne Golf Club – West Course", location:"Melbourne, Australia", lists:["gd_world"] },
+  { id:"kingston-heath", name:"Kingston Heath Golf Club", location:"Melbourne, Australia", lists:["gd_world"] },
+  { id:"cape-kidnappers", name:"Cape Kidnappers Golf Course", location:"Hawke's Bay, New Zealand", lists:["gd_world"] },
+  { id:"cape-wickham", name:"Cape Wickham Links", location:"King Island, Tasmania", lists:["gd_world"] },
+  { id:"barnbougle-dunes", name:"Barnbougle Dunes", location:"Bridport, Tasmania", lists:["gd_world"] },
+  { id:"lost-farm", name:"Lost Farm", location:"Bridport, Tasmania", lists:["gd_world"] },
+  { id:"the-national-ocean", name:"The National Golf Club – Ocean Course", location:"Cape Schanck, Australia", lists:["gd_world"] },
+  { id:"new-south-wales-gc", name:"New South Wales Golf Club", location:"Sydney, Australia", lists:["gd_world"] },
+  { id:"royal-adelaide", name:"Royal Adelaide Golf Club", location:"Adelaide, Australia", lists:["gd_world"] },
+  { id:"metropolitan-gc", name:"Metropolitan Golf Club", location:"Melbourne, Australia", lists:["gd_world"] },
+  { id:"jacks-point", name:"Jack's Point Golf Course", location:"Queenstown, New Zealand", lists:["gd_world"] },
+  { id:"paraparaumu", name:"Paraparaumu Beach Golf Club", location:"Paraparaumu, New Zealand", lists:["gd_world"] },
+  { id:"tara-iti", name:"Tara Iti Golf Club", location:"Te Arai, New Zealand", lists:["gd_world"] },
+  { id:"tara-iti-north", name:"Te Arai Links – North Course", location:"Te Arai, New Zealand" },
+  { id:"royal-sydney", name:"Royal Sydney Golf Club", location:"Sydney, Australia" },
+  { id:"royal-melbourne-east", name:"Royal Melbourne Golf Club – East Course", location:"Melbourne, Australia" },
+  { id:"victoria-gc", name:"Victoria Golf Club", location:"Melbourne, Australia" },
+  { id:"huntingdale", name:"Huntingdale Golf Club", location:"Melbourne, Australia" },
+  { id:"commonwealth-gc", name:"Commonwealth Golf Club", location:"Melbourne, Australia" },
+  { id:"yarra-yarra", name:"Yarra Yarra Golf Club", location:"Melbourne, Australia" },
+  { id:"pennant-hills", name:"Pennant Hills Golf Club", location:"Sydney, Australia" },
+  { id:"lake-karrinyup", name:"Lake Karrinyup Country Club", location:"Perth, Australia" },
+  { id:"wynn-perth", name:"The Vines Resort – Ellenbrook Course", location:"Swan Valley, Australia" },
+  { id:"st-andrews-beach", name:"St Andrews Beach Golf Course", location:"Fingal, Victoria" },
+  { id:"moonah-links", name:"Moonah Links – Open Course", location:"Fingal, Victoria", lists:["gd_world"] },
+  { id:"13th-beach", name:"13th Beach Golf Links", location:"Barwon Heads, Victoria" },
+  { id:"eynesbury", name:"Eynesbury Golf Club", location:"Eynesbury, Victoria" },
+  { id:"kauri-cliffs", name:"Kauri Cliffs", location:"Matauri Bay, New Zealand", lists:["gd_world"] },
+  { id:"clearwater", name:"Clearwater Golf Club", location:"Christchurch, New Zealand" },
+  { id:"gulf-harbour", name:"Gulf Harbour Country Club", location:"Whangaparaoa, New Zealand" },
+  { id:"valderrama", name:"Real Club Valderrama", location:"Sotogrande, Spain", lists:["gd_world"] },
+  { id:"golf-national", name:"Golf National", location:"Saint-Quentin-en-Yvelines, France" },
+  { id:"morfontaine", name:"Golf de Morfontaine", location:"Senlis, France", lists:["gd_world"] },
+  { id:"fontainebleau", name:"Golf de Fontainebleau", location:"Fontainebleau, France" },
+  { id:"golf-etoges", name:"Golf d'Etretat", location:"Etretat, France" },
+  { id:"crans-montana", name:"Golf Club Crans-sur-Sierre", location:"Crans-Montana, Switzerland" },
+  { id:"royal-zoute", name:"Royal Zoute Golf Club", location:"Knokke-Heist, Belgium", lists:["gd_world"] },
+  { id:"hamburger-gc", name:"Hamburger Golf-Club", location:"Hamburg, Germany" },
+  { id:"gut-larchenhof", name:"GC Gut Lärchenhof", location:"Cologne, Germany" },
+  { id:"gut-kaden", name:"Golf Club Gut Kaden", location:"Alveslohe, Germany" },
+  { id:"ryder-real-nuevo", name:"Real Club de Golf El Prat", location:"Terrassa, Spain" },
+  { id:"club-de-campo", name:"Club de Campo Villa de Madrid", location:"Madrid, Spain" },
+  { id:"penha-longa", name:"Penha Longa Golf Club", location:"Sintra, Portugal" },
+  { id:"royal-golf-evian", name:"Evian Resort Golf Club", location:"Evian-les-Bains, France" },
+  { id:"falsterbo", name:"Falsterbo Golf Club", location:"Falsterbo, Sweden" },
+  { id:"barseback", name:"Barseback Golf & Country Club", location:"Loddekopinge, Sweden" },
+  { id:"oslo-gc", name:"Oslo Golf Club", location:"Oslo, Norway" },
+  { id:"kennemer", name:"Kennemer Golf & Country Club", location:"Zandvoort, Netherlands" },
+  { id:"the-dutch", name:"The Dutch Golf Club", location:"Eindhovensche, Netherlands" },
+  { id:"seddiner-see", name:"Golf & Country Club Seddiner See", location:"Berlin, Germany" },
+  { id:"golf-club-milan", name:"Golf Club Milano", location:"Milan, Italy" },
+  { id:"circolo-golf-bogogno", name:"Circolo Golf Bogogno", location:"Bogogno, Italy" },
+  { id:"royal-mougins", name:"Royal Mougins Golf Club", location:"Mougins, France" },
+  { id:"real-sociedad", name:"Real Sociedad de Golf de Neguri", location:"Algorta, Spain" },
+  { id:"golf-de-sperone", name:"Golf de Sperone", location:"Bonifacio, Corsica" },
+  { id:"hirono", name:"Hirono Golf Club", location:"Kobe, Japan", lists:["gd_world"] },
+  { id:"kawana-fuji", name:"Kawana Hotel Golf Course – Fuji", location:"Ito, Japan" },
+  { id:"naruo", name:"Naruo Golf Club", location:"Amagasaki, Japan" },
+  { id:"kasumigaseki-east", name:"Kasumigaseki Country Club – East", location:"Kawagoe, Japan" },
+  { id:"caledonian-gc", name:"Caledonian Golf Club", location:"Chiba, Japan" },
+  { id:"nine-bridges", name:"Nine Bridges Golf Club", location:"Jeju, South Korea", lists:["gd_world"] },
+  { id:"jack-nicklaus-korea", name:"Jack Nicklaus Golf Club Korea", location:"Songdo, South Korea", lists:["gd_world"] },
+  { id:"blackstone-hawaii", name:"Nanea Golf Club", location:"Kailua-Kona, HI", lists:["gd_us","gm_us"] },
+  { id:"mauna-kea", name:"Mauna Kea Golf Course", location:"Kohala Coast, HI" },
+  { id:"plantation-kapalua", name:"Plantation Course at Kapalua", location:"Lahaina, HI" },
+  { id:"shanqin-bay", name:"Shanqin Bay Golf Club", location:"Haikou, China", lists:["gd_world"] },
+  { id:"the-bluffs", name:"The Bluffs Ho Tram Strip", location:"Ba Ria-Vung Tau, Vietnam", lists:["gd_world"] },
+  { id:"yas-links", name:"Yas Links Abu Dhabi", location:"Abu Dhabi, UAE", lists:["gd_world"] },
+  { id:"emirates-majlis", name:"Emirates Golf Club – Majlis", location:"Dubai, UAE" },
+  { id:"cabot-saint-lucia", name:"Cabot Saint Lucia", location:"Saint Lucia", lists:["gd_world"] },
+  { id:"teeth-of-the-dog", name:"Casa de Campo – Teeth of the Dog", location:"La Romana, Dominican Republic", lists:["gd_world"] },
+  { id:"mid-ocean", name:"Mid Ocean Club", location:"Tucker's Town, Bermuda", lists:["gd_world"] },
+  { id:"sandy-lane-green-monkey", name:"Sandy Lane Golf Club – Green Monkey", location:"St. James, Barbados" },
+  { id:"tryall-club", name:"Tryall Club", location:"Montego Bay, Jamaica" },
+  { id:"fancourt-links", name:"Fancourt – The Links", location:"George, South Africa", lists:["gd_world"] },
+  { id:"leopard-creek", name:"Leopard Creek Country Club", location:"Malelane, South Africa", lists:["gd_world"] },
+  { id:"sun-city-gary-player", name:"Sun City – Gary Player Country Club", location:"Sun City, South Africa" },
+  { id:"els-club-dubai", name:"The Els Club – Dubai", location:"Dubai, UAE" },
+  { id:"nirwana-bali", name:"Nirwana Bali Golf Club", location:"Bali, Indonesia" },
+  { id:"red-sea-golf", name:"Red Sea Golf Club", location:"Yanbu, Saudi Arabia" },
+  { id:"royal-dar-es-salam", name:"Royal Golf Dar Es-Salam – Red Course", location:"Rabat, Morocco" },
+  { id:"el-camaleon", name:"El Camaleon Mayakoba", location:"Playa del Carmen, Mexico" },
+  { id:"golf-chapultepec", name:"Club de Golf Chapultepec", location:"Mexico City, Mexico" },
+
+  // ── New & Emerging Courses (2022–2025) ──────────────────────
+  { id:"broomsedge",              name:"Broomsedge Golf Club",                    location:"Rembert, SC",                 lists:["gd_us"] },
+  { id:"landmand",                name:"Landmand Golf Club",                      location:"Homer, NE",                   lists:["gd_pub","gm_us"] },
+  { id:"the-fall-line-east",      name:"The Fall Line – East Course",             location:"Milledgeville, GA",           lists:["gd_us"] },
+  { id:"the-fall-line-west",      name:"The Fall Line – West Course",             location:"Milledgeville, GA",           lists:[] },
+  { id:"the-tree-farm",           name:"The Tree Farm",                           location:"Aiken, SC",                   lists:["gd_us"] },
+  { id:"21-golf-club",            name:"21 Golf Club",                            location:"Aiken, SC",                   lists:[] },
+  { id:"cabot-citrus-karoo",      name:"Cabot Citrus Farms – Karoo Course",       location:"Brooksville, FL",             lists:["gd_pub"] },
+  { id:"cabot-citrus-squeeze",    name:"Cabot Citrus Farms – The Squeeze",        location:"Brooksville, FL",             lists:[] },
+  { id:"graybull",                name:"GrayBull Golf Club",                      location:"Alliance, NE",                lists:[] },
+  { id:"lost-rail",               name:"Lost Rail Golf Club",                     location:"Mullen, NE",                  lists:[] },
+  { id:"rock-creek-ne",           name:"Rock Creek Golf Course",                  location:"Mullen, NE",                  lists:[] },
+  { id:"sage-valley",             name:"Sage Valley Golf Club",                   location:"Graniteville, SC",            lists:["gd_us"] },
+  { id:"the-cradle",              name:"The Cradle at Pinehurst",                 location:"Pinehurst, NC",               lists:[] },
+  { id:"pinehurst-9",             name:"Pinehurst No. 9",                         location:"Pinehurst, NC",               lists:[] },
+  { id:"sutton-bay",              name:"Sutton Bay Club",                         location:"Lake Andes, SD",              lists:["gd_pub"] },
+  { id:"silvies-valley-ranch",    name:"Silvies Valley Ranch",                    location:"Seneca, OR",                  lists:["gd_pub"] },
+  { id:"the-golf-club-at-black-rock", name:"Black Rock Golf Club",               location:"Coeur d'Alene, ID",           lists:[] },
+  { id:"pronghorn-fazio",         name:"Pronghorn Club – Fazio Course",           location:"Bend, OR",                    lists:[] },
+  { id:"tetherow",                name:"Tetherow Golf Club",                      location:"Bend, OR",                    lists:["gd_pub"] },
+  { id:"bandon-preserve",         name:"Bandon Preserve",                         location:"Bandon, OR",                  lists:[] },
+  { id:"crosswater",              name:"Crosswater Club",                         location:"Sunriver, OR",                lists:[] },
+
+  // ── Southeast – New & Notable ───────────────────────────────
+  { id:"old-sandwich-sc",         name:"Old Sandwich Golf Club",                  location:"Aiken, SC",                   lists:[] },
+  { id:"congaree-gc",             name:"Congaree Golf Club",                      location:"Ridgeland, SC",               lists:["gd_us","gm_us"] },
+  { id:"creek-club-sc",           name:"Creek Club",                              location:"Sea Island, GA",              lists:[] },
+  { id:"the-creek-course",        name:"The Creek Course at Sea Island",          location:"St. Simons Island, GA",       lists:[] },
+  { id:"wachesaw-east",           name:"Wachesaw East Club",                      location:"Murrells Inlet, SC",          lists:[] },
+  { id:"arcadian-shores-mb",      name:"Arcadian Shores Golf Club",               location:"Myrtle Beach, SC",            lists:[] },
+  { id:"tidewater-gc",            name:"Tidewater Golf Club",                     location:"North Myrtle Beach, SC",      lists:[] },
+  { id:"leopards-chase",          name:"Leopard's Chase Golf Club",               location:"Little River, SC",            lists:[] },
+  { id:"hunters-run-cc",          name:"Hunter's Run Country Club",               location:"Boynton Beach, FL",           lists:[] },
+  { id:"dye-preserve",            name:"The Dye Preserve",                        location:"Jupiter, FL",                 lists:[] },
+  { id:"seminole-legacy",         name:"Seminole Legacy Golf Club",               location:"Tallahassee, FL",             lists:[] },
+  { id:"camp-creek",              name:"Camp Creek Golf Club",                    location:"Watersound, FL",              lists:[] },
+  { id:"shark-tooth",             name:"Shark's Tooth Golf Club",                 location:"Palm City, FL",               lists:[] },
+  { id:"the-club-at-ibis",        name:"The Club at Ibis – Heritage Course",      location:"West Palm Beach, FL",         lists:[] },
+  { id:"frenchmans-reserve",      name:"Frenchman's Reserve Country Club",        location:"Palm Beach Gardens, FL",      lists:[] },
+  { id:"lost-city-sa",            name:"Lost City Golf Course – Sun City",        location:"Sun City, South Africa",      lists:[] },
+  { id:"old-fort-gc",             name:"Old Fort Golf Club",                      location:"Old Fort, NC",                lists:[] },
+  { id:"Tot-Hill-Farm",           name:"Tot Hill Farm Golf Club",                 location:"Asheboro, NC",                lists:[] },
+  { id:"woodbridge-gc",           name:"Woodbridge Golf Links",                   location:"Canton, GA",                  lists:[] },
+  { id:"highland-park-rc",        name:"Highland Park Recreation Center",         location:"Dallas, TX",                  lists:[] },
+  { id:"horseshoe-bay-slick",     name:"Horseshoe Bay Resort – Slick Rock",       location:"Horseshoe Bay, TX",           lists:[] },
+  { id:"whittington-health",      name:"The Whittington Health Golf Club",        location:"Nashville, TN",               lists:[] },
+  { id:"the-golf-farm",           name:"The Golf Farm",                           location:"College Grove, TN",           lists:[] },
+
+  // ── International – Europe ──────────────────────────────────
+  { id:"lofoten-links",           name:"Lofoten Links",                           location:"Gimsøy Island, Norway",       lists:["gd_world","gm_us"] },
+  { id:"cabot-highlands",         name:"Cabot Highlands",                         location:"Inverness, Scotland",         lists:[] },
+  { id:"dumbarnie-links-scot",    name:"Dumbarnie Links",                         location:"Fife, Scotland",              lists:["gd_world"] },
+  { id:"trump-international-scot",name:"Trump International Golf Links Scotland", location:"Balmedie, Scotland",          lists:[] },
+  { id:"st-patricks-donegal",     name:"St. Patrick's Links",                     location:"Rosapenna, Ireland",          lists:["gd_world"] },
+  { id:"doonbeg-trump",           name:"Trump International Golf Links Ireland",  location:"Doonbeg, Ireland",            lists:[] },
+  { id:"tralee-gc",               name:"Tralee Golf Club",                        location:"Tralee, Ireland",             lists:[] },
+  { id:"enniscrone-gc",           name:"Enniscrone Golf Club",                    location:"Enniscrone, Ireland",         lists:[] },
+  { id:"carne-gc",                name:"Carne Golf Links",                        location:"Belmullet, Ireland",          lists:[] },
+  { id:"connemara-gc",            name:"Connemara Golf Club",                     location:"Ballyconneely, Ireland",      lists:[] },
+  { id:"killarney-mahony",        name:"Killarney Golf Club – Mahony's Point",    location:"Killarney, Ireland",          lists:[] },
+  { id:"royal-dublin-gc",         name:"Royal Dublin Golf Club",                  location:"Dublin, Ireland",             lists:[] },
+  { id:"portmarnock-links2",      name:"Portmarnock Golf Club",                   location:"Portmarnock, Ireland",        lists:["gd_world"] },
+  { id:"castle-gc-ireland",       name:"The Castle Golf Club",                    location:"Dublin, Ireland",             lists:[] },
+  { id:"druids-glen",             name:"Druids Glen Golf Club",                   location:"Wicklow, Ireland",            lists:[] },
+  { id:"glasson-gc",              name:"Glasson Lakeland Golf",                   location:"Athlone, Ireland",            lists:[] },
+  { id:"st-andrews-jubilee",      name:"St Andrews Links – Jubilee Course",       location:"St Andrews, Scotland",        lists:[] },
+  { id:"royal-troon-portland",    name:"Royal Troon Golf Club – Portland",        location:"Troon, Scotland",             lists:[] },
+  { id:"western-gailes2",         name:"Western Gailes Golf Club",                location:"Irvine, Scotland",            lists:["gd_world"] },
+  { id:"southerndown",            name:"Southerndown Golf Club",                  location:"Bridgend, Wales",             lists:[] },
+  { id:"celtic-manor-twenty-ten", name:"Celtic Manor Resort – Twenty Ten Course", location:"Newport, Wales",              lists:[] },
+  { id:"royal-guernsey",          name:"Royal Guernsey Golf Club",                location:"Guernsey, Channel Islands",  lists:[] },
+  { id:"silloth-on-solway",       name:"Silloth on Solway Golf Club",             location:"Silloth, England",            lists:[] },
+  { id:"seacroft",                name:"Seacroft Golf Club",                      location:"Skegness, England",           lists:[] },
+  { id:"royal-north-norfolk",     name:"Brancaster – Royal West Norfolk GC",      location:"Brancaster, England",         lists:[] },
+  { id:"hunstanton",              name:"Hunstanton Golf Club",                    location:"Hunstanton, England",         lists:[] },
+  { id:"royal-cromer",            name:"Royal Cromer Golf Club",                  location:"Cromer, England",             lists:[] },
+  { id:"lahinch-castle",          name:"Lahinch Golf Club – Castle Course",       location:"Lahinch, Ireland",            lists:[] },
+  { id:"waterville-links",        name:"Waterville Golf Links",                   location:"Waterville, Ireland",         lists:["gd_world"] },
+  { id:"dooks",                   name:"Dooks Golf Club",                         location:"Glenbeigh, Ireland",          lists:[] },
+  { id:"ceann-sibeal",            name:"Ceann Sibéal Golf Club",                  location:"Dingle, Ireland",             lists:[] },
+  { id:"dunas-comporta",          name:"Dunas Comporta Golf",                     location:"Comporta, Portugal",          lists:[] },
+  { id:"troia-golf",              name:"Troia Golf",                              location:"Troia, Portugal",             lists:[] },
+  { id:"royal-obidos",            name:"Royal Óbidos Spa & Golf Resort",          location:"Óbidos, Portugal",            lists:[] },
+  { id:"quinta-do-lago-south",    name:"Quinta do Lago – South Course",           location:"Almancil, Portugal",          lists:[] },
+  { id:"monte-rei",               name:"Monte Rei Golf & Country Club",           location:"Vila Nova de Cacela, Portugal",lists:[] },
+  { id:"penha-longa-atlantico",   name:"Penha Longa – Atlântico Course",          location:"Sintra, Portugal",            lists:[] },
+  { id:"algarve-victoria",        name:"Algarve Golf – Victoria Course",          location:"Vilamoura, Portugal",         lists:[] },
+  { id:"falsterbo-sweden",        name:"Falsterbo Golf Club",                     location:"Falsterbo, Sweden",           lists:[] },
+  { id:"bro-hof-stadium",         name:"Bro Hof Slott – Stadium Course",          location:"Bro, Sweden",                 lists:[] },
+  { id:"oslo-gc-norway",          name:"Oslo Golf Club",                          location:"Oslo, Norway",                lists:[] },
+  { id:"bergan-gc",               name:"Bergen Golf Club",                        location:"Bergen, Norway",              lists:[] },
+  { id:"aberdeen-links",          name:"Murcar Links Golf Club",                  location:"Aberdeen, Scotland",          lists:[] },
+  { id:"scotscraig",              name:"Scotscraig Golf Club",                    location:"Tayport, Scotland",           lists:[] },
+  { id:"panmure",                 name:"Panmure Golf Club",                       location:"Carnoustie, Scotland",        lists:[] },
+  { id:"monifieth-medal",         name:"Monifieth Golf Links – Medal Course",     location:"Monifieth, Scotland",         lists:[] },
+  { id:"golf-montado",            name:"Golf de Montado",                         location:"Setúbal, Portugal",           lists:[] },
+  { id:"fontanals-gc",            name:"Fontanals Golf Club",                     location:"Cerdanya, Spain",             lists:[] },
+  { id:"pals-gc",                 name:"Golf de Pals",                            location:"Pals, Spain",                 lists:[] },
+  { id:"el-saler",                name:"Club de Golf El Saler",                   location:"Valencia, Spain",             lists:[] },
+  { id:"guadalmina-sur",          name:"Guadalmina Golf Club – Sur Course",       location:"Marbella, Spain",             lists:[] },
+  { id:"real-club-seville",       name:"Real Club de Golf de Sevilla",            location:"Seville, Spain",              lists:[] },
+
+  // ── International – Asia & Pacific ──────────────────────────
+  { id:"the-dunes-rye",           name:"The Dunes Golf Links",                    location:"Rye, Victoria, Australia",    lists:[] },
+  { id:"port-phillip-bay",        name:"Port Phillip Bay Golf Club",              location:"Frankston, Victoria",         lists:[] },
+  { id:"kooyonga",                name:"Kooyonga Golf Club",                      location:"Lockleys, SA, Australia",     lists:[] },
+  { id:"lake-karrinyup2",         name:"Lake Karrinyup Country Club",             location:"Karrinyup, WA, Australia",    lists:[] },
+  { id:"sorrento-gc",             name:"Sorrento Golf Club",                      location:"Sorrento, Victoria, Australia",lists:[] },
+  { id:"flinders-gc",             name:"Flinders Golf Club",                      location:"Flinders, Victoria, Australia",lists:[] },
+  { id:"peninsula-kingswood",     name:"Peninsula Kingswood Country Golf Club",   location:"Frankston, Victoria, Australia",lists:[] },
+  { id:"eagles-nest-aus",         name:"Eagles Nest Golf Club",                   location:"Hawks Nest, NSW, Australia",  lists:[] },
+  { id:"terrey-hills",            name:"Terrey Hills Golf & Country Club",        location:"Terrey Hills, NSW, Australia", lists:[] },
+  { id:"new-south-wales-gc2",     name:"New South Wales Golf Club",               location:"La Perouse, NSW, Australia",  lists:["gd_world"] },
+  { id:"bonnies-gc",              name:"Bonnie Doon Golf Club",                   location:"Five Dock, NSW, Australia",   lists:[] },
+  { id:"ocean-dunes-vietnam",     name:"BRG Da Nang Golf Resort",                 location:"Da Nang, Vietnam",            lists:[] },
+  { id:"laguna-lang-co",          name:"Laguna Golf Lang Co",                     location:"Hue, Vietnam",                lists:[] },
+  { id:"lake-malaren",            name:"Lake Malaren Golf Club",                  location:"Shanghai, China",             lists:[] },
+  { id:"mission-hills-blackstone",name:"Mission Hills Golf Club – Blackstone",    location:"Haikou, China",               lists:[] },
+  { id:"stone-forest",            name:"Stone Forest International Golf Club",    location:"Kunming, China",              lists:[] },
+  { id:"pines-ningbo",            name:"The Pines Golf Course",                   location:"Ningbo, China",               lists:[] },
+  { id:"accordia-golf-narashino", name:"Accordia Golf Narashino Country Club",    location:"Chiba, Japan",                lists:[] },
+  { id:"tokyo-gc",                name:"Tokyo Golf Club",                         location:"Saitama, Japan",              lists:[] },
+  { id:"phoenix-cc-japan",        name:"Phoenix Country Club",                    location:"Miyazaki, Japan",             lists:[] },
+  { id:"hokkaido-classic",        name:"Hokkaido Classic Golf Club",              location:"Hokkaido, Japan",             lists:[] },
+  { id:"anantara-hua-hin",        name:"Black Mountain Golf Club",                location:"Hua Hin, Thailand",           lists:[] },
+  { id:"blue-canyon-canyon",      name:"Blue Canyon Country Club – Canyon Course",location:"Phuket, Thailand",            lists:[] },
+  { id:"amata-spring",            name:"Amata Spring Country Club",               location:"Chonburi, Thailand",          lists:[] },
+  { id:"sentosa-gc-serapong",     name:"Sentosa Golf Club – Serapong Course",     location:"Singapore",                   lists:[] },
+  { id:"tanah-merah-garden",      name:"Tanah Merah Country Club – Garden",       location:"Singapore",                   lists:[] },
+  { id:"emirates-faldo",          name:"Emirates Golf Club – Faldo Course",       location:"Dubai, UAE",                  lists:[] },
+  { id:"trump-dubai",             name:"Trump International Golf Club Dubai",     location:"Dubai, UAE",                  lists:[] },
+  { id:"abu-dhabi-gc",            name:"Abu Dhabi Golf Club",                     location:"Abu Dhabi, UAE",              lists:[] },
+
+  // ── International – Americas ────────────────────────────────
+  { id:"punta-espada",            name:"Cap Cana – Punta Espada Golf Club",       location:"Punta Cana, Dominican Republic",lists:[] },
+  { id:"las-iguanas",             name:"Casa de Campo – Las Iguanas",             location:"La Romana, Dominican Republic",lists:[] },
+  { id:"sandy-lane-country",      name:"Sandy Lane Golf Club – Country Course",   location:"St. James, Barbados",         lists:[] },
+  { id:"half-moon-gc",            name:"Half Moon Golf Club",                     location:"Montego Bay, Jamaica",        lists:[] },
+  { id:"white-witch",             name:"White Witch Golf Course",                 location:"Rose Hall, Jamaica",          lists:[] },
+  { id:"punta-mita-pacifico",     name:"Four Seasons Punta Mita – Pacifico",      location:"Punta Mita, Mexico",          lists:[] },
+  { id:"mayakoba-el-camaleon",    name:"El Camaleón Mayakoba",                    location:"Playa del Carmen, Mexico",    lists:[] },
+  { id:"club-campestre-monterrey",name:"Club Campestre de Monterrey",             location:"Monterrey, Mexico",           lists:[] },
+  { id:"grand-coral",             name:"Grand Coral Golf Club",                   location:"Riviera Maya, Mexico",        lists:[] },
+  { id:"peninsula-papagayo",      name:"Peninsula Papagayo Golf Course",          location:"Guanacaste, Costa Rica",      lists:[] },
+  { id:"los-suenos-resort",       name:"Los Sueños Marriott – La Iguana",         location:"Herradura, Costa Rica",       lists:[] },
+  { id:"terravista",              name:"Terravista Golf Course",                  location:"Trancoso, Brazil",            lists:[] },
+  { id:"reserva-fazenda",         name:"Fazenda Boa Vista Golf Club",             location:"Porto Feliz, Brazil",         lists:[] },
+  { id:"los-leones-gc",           name:"Club de Golf Los Leones",                 location:"Santiago, Chile",             lists:[] },
+  { id:"lafken-mapu",             name:"Lafken Mapu Golf",                        location:"Puerto Varas, Chile",         lists:[] },
+
+  // ── International – Africa & Middle East ────────────────────
+  { id:"simola-gc",               name:"Simola Golf & Country Estate",            location:"Knysna, South Africa",        lists:[] },
+  { id:"arabella-gc",             name:"Arabella Golf Club",                      location:"Hermanus, South Africa",      lists:[] },
+  { id:"pezula-gc",               name:"Pezula Resort Hotel & Spa Golf",          location:"Knysna, South Africa",        lists:[] },
+  { id:"pearl-valley-gc",         name:"Pearl Valley Golf Estate",                location:"Paarl, South Africa",         lists:[] },
+  { id:"steenberg-gc",            name:"Steenberg Golf Club",                     location:"Cape Town, South Africa",     lists:[] },
+  { id:"royal-johannesburg-east", name:"Royal Johannesburg & Kensington – East",  location:"Johannesburg, South Africa",  lists:[] },
+  { id:"lusaka-gc",               name:"Lusaka Golf Club",                        location:"Lusaka, Zambia",              lists:[] },
+  { id:"nyali-gc",                name:"Nyali Golf & Country Club",               location:"Mombasa, Kenya",              lists:[] },
+  { id:"windsor-gc-kenya",        name:"Windsor Golf Hotel & Country Club",       location:"Nairobi, Kenya",              lists:[] },
+  { id:"saadiyat-beach-gc",       name:"Saadiyat Beach Golf Club",                location:"Abu Dhabi, UAE",              lists:[] },
+  { id:"jumeirah-golf-estates-fire",name:"Jumeirah Golf Estates – Fire Course",   location:"Dubai, UAE",                  lists:[] },
+  { id:"ayla-gc",                 name:"Ayla Golf Club",                          location:"Aqaba, Jordan",               lists:[] },
+  { id:"royal-dar-es-salam-red",  name:"Royal Golf Dar Es-Salam – Red Course",    location:"Rabat, Morocco",              lists:[] },
+  { id:"amelkis-gc",              name:"Amelkis Golf Club",                       location:"Marrakech, Morocco",          lists:[] },
+  { id:"palmeraie-gc",            name:"Palmeraie Golf Palace",                   location:"Marrakech, Morocco",          lists:[] },
+];
+
+const LIST_LABELS = {
+  gd_us:    "GD US 100",
+  gd_world: "GD World 100",
+  gd_pub:   "GD Public 100",
+  gm_us:    "Golf Mag 100",
+};
+
+// ── Firebase Init ─────────────────────────────────────────────
+const configReady = !Object.values(FIREBASE_CONFIG).some(v => v.startsWith("PASTE_"));
+let db   = null;
+let auth = null;
+if (configReady) {
+  firebase.initializeApp(FIREBASE_CONFIG);
+  db   = firebase.firestore();
+  auth = firebase.auth();
+  // Persist login across sessions
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function slugify(n) { return n.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
+function uid()      { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
+
+function searchCourses(query, custom=[]) {
+  if (!query || query.length < 2) return [];
+  const q = query.toLowerCase();
+  const map = {};
+  PRESET_COURSES.forEach(c => map[c.id]=c);
+  custom.forEach(c => map[c.id]={...c,isCustom:true});
+  return Object.values(map).filter(c =>
+    c.name.toLowerCase().includes(q) || c.location.toLowerCase().includes(q)
+  ).slice(0,10);
+}
+
+// ── Share Card (Canvas) ───────────────────────────────────────
+async function generateShareCard(golferName, courses) {
+  const W=1080, H=1500, PAD=72;
+  const canvas = document.createElement('canvas');
+  canvas.width=W; canvas.height=H;
+  const ctx = canvas.getContext('2d');
+  try {
+    await Promise.all([
+      new FontFace('Playfair Display','url(https://fonts.gstatic.com/s/playfairdisplay/v37/nuFiD-vYSZviVYUb_rj3ij__anPXDTnCjmHKM4nYO7KN_qiTbtA.woff2)',{weight:'700'}).load(),
+    ].map(p=>p.then(f=>document.fonts.add(f))));
+  } catch(_){}
+  await document.fonts.ready;
+  const C={bg:'#f5efe3',card:'#ffffff',green:'#3a6644',text:'#2a2a24',light:'#9e9e8f',border:'#ddd6c8'};
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(58,102,68,0.04)'; ctx.lineWidth=1;
+  for(let y=0;y<H;y+=18){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  const hdrH=190;
+  ctx.fillStyle=C.green; ctx.fillRect(0,0,W,hdrH);
+  ctx.font='60px serif'; ctx.textAlign='center'; ctx.fillText('⛳',W/2,66);
+  ctx.fillStyle='#fff'; ctx.font='bold 68px "Playfair Display",Georgia,serif';
+  ctx.fillText('Course Rank',W/2,130);
+  ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='26px monospace';
+  ctx.fillText('GOLF COURSE RANKINGS',W/2,168);
+  const nameY=hdrH+50;
+  ctx.fillStyle=C.text; ctx.font='italic 48px "Playfair Display",Georgia,serif';
+  ctx.fillText(golferName+"'s Top Courses",W/2,nameY);
+  ctx.strokeStyle=C.border; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(PAD,nameY+20); ctx.lineTo(W-PAD,nameY+20); ctx.stroke();
+  const cardX=PAD,cardW=W-PAD*2,cardH=90,cardGap=11,startY=nameY+46;
+  courses.slice(0,10).forEach((course,i)=>{
+    const y=startY+i*(cardH+cardGap);
+    ctx.shadowColor='rgba(42,42,36,0.07)'; ctx.shadowBlur=10; ctx.shadowOffsetY=3;
+    roundRect(ctx,cardX,y,cardW,cardH,12); ctx.fillStyle=C.card; ctx.fill();
+    ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+    roundRect(ctx,cardX,y,6,cardH,[12,0,0,12]);
+    ctx.fillStyle=i<3?C.green:C.border; ctx.fill();
+    ctx.fillStyle=i<3?C.green:C.light;
+    ctx.font=`italic ${i<3?'42':'36'}px "Playfair Display",Georgia,serif`;
+    ctx.textAlign='right';
+    ctx.fillText(String(i+1),cardX+86,y+cardH/2+14);
+    ctx.strokeStyle=C.border; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(cardX+98,y+18); ctx.lineTo(cardX+98,y+cardH-18); ctx.stroke();
+    const maxW=cardW-118;
+    ctx.fillStyle=C.text; ctx.font='28px "Playfair Display",Georgia,serif'; ctx.textAlign='left';
+    ctx.fillText(truncateText(ctx,course.name,maxW),cardX+114,y+cardH/2-2);
+    ctx.fillStyle=C.light; ctx.font='20px monospace';
+    ctx.fillText(truncateText(ctx,course.location||'',maxW),cardX+114,y+cardH/2+24);
+  });
+  const footerY=H-80;
+  ctx.strokeStyle=C.border; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(PAD,footerY-10); ctx.lineTo(W-PAD,footerY-10); ctx.stroke();
+  ctx.fillStyle=C.light; ctx.font='24px monospace'; ctx.textAlign='center';
+  ctx.fillText('course-rank-fawn.vercel.app',W/2,footerY+26);
+  ctx.fillStyle=C.green; ctx.font='italic 26px "Playfair Display",Georgia,serif';
+  ctx.fillText('Golf Course Rankings',W/2,footerY+60);
+  return canvas.toDataURL('image/png');
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  if(typeof r==='number') r=[r,r,r,r];
+  const[tl,tr,br,bl]=r;
+  ctx.beginPath();
+  ctx.moveTo(x+tl,y); ctx.lineTo(x+w-tr,y); ctx.quadraticCurveTo(x+w,y,x+w,y+tr);
+  ctx.lineTo(x+w,y+h-br); ctx.quadraticCurveTo(x+w,y+h,x+w-br,y+h);
+  ctx.lineTo(x+bl,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-bl);
+  ctx.lineTo(x,y+tl); ctx.quadraticCurveTo(x,y,x+tl,y);
+  ctx.closePath();
+}
+function truncateText(ctx,text,maxW){
+  if(ctx.measureText(text).width<=maxW) return text;
+  let t=text;
+  while(ctx.measureText(t+'…').width>maxW&&t.length>0) t=t.slice(0,-1);
+  return t+'…';
+}
+
+// ── Share Modal ───────────────────────────────────────────────
+function ShareModal({golferName,courses,onClose}){
+  const[img,setImg]=useState(null);
+  const[loading,setLoading]=useState(true);
+  useEffect(()=>{ generateShareCard(golferName,courses).then(u=>{setImg(u);setLoading(false);}); },[]);
+  function download(){
+    const a=document.createElement('a');
+    a.href=img; a.download=`course-rank-${golferName.toLowerCase().replace(/\s+/g,'-')}.png`; a.click();
+  }
+  return(
+    <div onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}
+      style={{position:'fixed',inset:0,background:'rgba(42,42,36,0.55)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:20,overflowY:'auto'}}>
+      <div style={{background:'#fff',border:'1.5px solid #d8d0c0',borderRadius:14,padding:28,width:'100%',maxWidth:420,boxShadow:'0 16px 48px rgba(42,42,36,0.18)'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}}>
+          <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:'1.2rem',color:'#2a2a24'}}>Share Your List</h3>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#b8b0a0',fontSize:20,cursor:'pointer'}}>×</button>
+        </div>
+        <div style={{background:'#f5efe3',borderRadius:10,overflow:'hidden',border:'1.5px solid #e0d8cc',marginBottom:18,minHeight:160,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          {loading
+            ? <span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.72rem',color:'#9e9e8f'}}>Generating card…</span>
+            : <img src={img} alt="Share card" style={{width:'100%',display:'block'}}/>}
+        </div>
+        <div style={{background:'#f5f2ee',borderRadius:8,padding:'12px 14px',marginBottom:16}}>
+          <p style={{fontFamily:"'DM Mono',monospace",fontSize:'0.64rem',color:'#6b6b5e',lineHeight:1.8}}>
+            <strong style={{color:'#2a2a24'}}>Instagram</strong> — Download → post as photo or Story<br/>
+            <strong style={{color:'#2a2a24'}}>X / Twitter</strong> — Download → attach to tweet<br/>
+            <strong style={{color:'#2a2a24'}}>iMessage / WhatsApp</strong> — Download → send directly
+          </p>
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={onClose} style={{background:'none',border:'1.5px solid #d8d0c0',borderRadius:7,color:'#6b6b5e',fontFamily:"'DM Mono',monospace",fontSize:'0.7rem',letterSpacing:'0.08em',textTransform:'uppercase',padding:'10px 16px',cursor:'pointer'}}>Close</button>
+          <button onClick={download} disabled={loading} style={{flex:1,background:loading?'#9e9e8f':'#3a6644',border:'none',borderRadius:7,color:'#fff',fontFamily:"'DM Mono',monospace",fontSize:'0.7rem',letterSpacing:'0.1em',textTransform:'uppercase',padding:10,cursor:loading?'default':'pointer'}}>↓ Download PNG</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Autocomplete ──────────────────────────────────────────────
+function Autocomplete({placeholder,onSelect,customCourses,onAddNew}){
+  const[q,setQ]=useState('');
+  const[res,setRes]=useState([]);
+  const[foc,setFoc]=useState(-1);
+  const[open,setOpen]=useState(false);
+  const wrap=useRef(null);
+  useEffect(()=>{
+    const h=e=>{if(wrap.current&&!wrap.current.contains(e.target))setOpen(false);};
+    document.addEventListener('mousedown',h);
+    return()=>document.removeEventListener('mousedown',h);
+  },[]);
+  function change(e){
+    const v=e.target.value; setQ(v); setFoc(-1);
+    if(v.length>=2){setRes(searchCourses(v,customCourses));setOpen(true);}
+    else{setOpen(false);setRes([]);}
+  }
+  function key(e){
+    if(!open) return;
+    const tot=res.length+1;
+    if(e.key==='ArrowDown'){e.preventDefault();setFoc(f=>(f+1)%tot);}
+    else if(e.key==='ArrowUp'){e.preventDefault();setFoc(f=>(f-1+tot)%tot);}
+    else if(e.key==='Enter'){e.preventDefault(); foc>=0&&foc<res.length?pick(res[foc]):onAddNew(q);}
+    else if(e.key==='Escape')setOpen(false);
+  }
+  function pick(c){onSelect(c);setQ('');setOpen(false);setRes([]);setFoc(-1);}
+  return(
+    <div ref={wrap} style={{position:'relative',marginBottom:12}}>
+      <span style={{position:'absolute',left:12,top:'50%',transform:'translateY(-50%)',fontSize:13,color:'#3a6644',pointerEvents:'none'}}>⛳</span>
+      <input value={q} onChange={change} onKeyDown={key}
+        onFocus={()=>{if(q.length>=2)setOpen(true);}}
+        placeholder={placeholder} autoComplete="off"
+        style={{width:'100%',boxSizing:'border-box',background:'#fff',border:'1.5px solid #d8d0c0',borderRadius:8,color:'#2a2a24',fontFamily:"'Libre Baskerville',serif",fontSize:'0.88rem',padding:'10px 14px 10px 36px',outline:'none'}}/>
+      {open&&(
+        <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,right:0,background:'#fff',border:'1.5px solid #d8d0c0',borderRadius:8,zIndex:100,maxHeight:240,overflowY:'auto',boxShadow:'0 6px 20px rgba(42,42,36,0.1)'}}>
+          {res.length===0&&<div style={{padding:'12px 14px',color:'#9e9e8f',fontStyle:'italic',fontSize:'0.82rem',textAlign:'center'}}>No matches found</div>}
+          {res.map((c,i)=>(
+            <div key={c.id} onMouseDown={()=>pick(c)}
+              style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid #f0ece4',background:foc===i?'#f4f9f5':'transparent'}}
+              onMouseEnter={()=>setFoc(i)}>
+              <div style={{display:'flex',alignItems:'baseline',gap:6,flexWrap:'wrap'}}>
+                <span style={{fontSize:'0.86rem',color:'#2a2a24'}}>{c.name}</span>
+                {c.isCustom&&<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.52rem',color:'#3a6644',border:'1px solid rgba(58,102,68,0.3)',borderRadius:3,padding:'1px 4px'}}>CUSTOM</span>}
+                {(c.lists||[]).map(l=>(
+                  <span key={l} style={{fontFamily:"'DM Mono',monospace",fontSize:'0.52rem',color:'#9e9e8f',border:'1px solid #e0d8cc',borderRadius:3,padding:'1px 4px',whiteSpace:'nowrap'}}>{LIST_LABELS[l]||l}</span>
+                ))}
+              </div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#9e9e8f',marginTop:2}}>{c.location}</div>
+            </div>
+          ))}
+          <div onMouseDown={()=>onAddNew(q)}
+            style={{padding:'10px 14px',cursor:'pointer',display:'flex',alignItems:'center',gap:8,borderTop:'1px solid #ede8df',color:'#3a6644',fontSize:'0.84rem',background:foc===res.length?'#f4f9f5':'transparent'}}
+            onMouseEnter={()=>setFoc(res.length)}>
+            <span style={{fontSize:16}}>＋</span>
+            <span>Add "<strong>{q}</strong>" as a new course</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Add Course Modal ──────────────────────────────────────────
+function AddModal({prefill,onConfirm,onClose}){
+  const[name,setName]=useState(prefill||'');
+  const[loc,setLoc]=useState('');
+  return(
+    <div onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}
+      style={{position:'fixed',inset:0,background:'rgba(42,42,36,0.45)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'#fff',border:'1.5px solid #d8d0c0',borderRadius:12,padding:28,width:'100%',maxWidth:380}}>
+        <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:'1.15rem',color:'#2a2a24',marginBottom:6}}>Add a New Course</h3>
+        <p style={{fontSize:'0.78rem',color:'#9e9e8f',marginBottom:16,lineHeight:1.6}}>Saved to the shared database so your whole group can find it.</p>
+        <input autoFocus value={name} onChange={e=>setName(e.target.value)}
+          onKeyDown={e=>{if(e.key==='Enter')document.getElementById('mloc').focus();}}
+          placeholder="Course name"
+          style={{width:'100%',boxSizing:'border-box',background:'#faf8f4',border:'1.5px solid #d8d0c0',borderRadius:7,color:'#2a2a24',fontFamily:"'Libre Baskerville',serif",fontSize:'0.88rem',padding:'10px 12px',outline:'none',marginBottom:10}}/>
+        <input id="mloc" value={loc} onChange={e=>setLoc(e.target.value)}
+          onKeyDown={e=>{if(e.key==='Enter'&&name.trim())onConfirm(name.trim(),loc.trim());}}
+          placeholder="Location (e.g. Augusta, GA)"
+          style={{width:'100%',boxSizing:'border-box',background:'#faf8f4',border:'1.5px solid #d8d0c0',borderRadius:7,color:'#2a2a24',fontFamily:"'Libre Baskerville',serif",fontSize:'0.88rem',padding:'10px 12px',outline:'none',marginBottom:14}}/>
+        <div style={{display:'flex',gap:10}}>
+          <button onClick={onClose} style={{background:'none',border:'1.5px solid #d8d0c0',borderRadius:7,color:'#6b6b5e',fontFamily:"'DM Mono',monospace",fontSize:'0.7rem',letterSpacing:'0.08em',textTransform:'uppercase',padding:'10px 16px',cursor:'pointer'}}>Cancel</button>
+          <button onClick={()=>name.trim()&&onConfirm(name.trim(),loc.trim())} disabled={!name.trim()}
+            style={{flex:1,background:'#3a6644',border:'none',borderRadius:7,color:'#fff',fontFamily:"'DM Mono',monospace",fontSize:'0.7rem',letterSpacing:'0.08em',textTransform:'uppercase',padding:10,cursor:'pointer',opacity:name.trim()?1:0.4}}>Add Course</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Course Bubble ─────────────────────────────────────────────
+function CourseBubble({course,rank,draggable:isDraggable,dragging,isOver,onTouchStart,onDragStart,onDragEnter,onDragEnd,onRemove,bucket,dataIndex}){
+  return(
+    <div data-drag-index={dataIndex}
+      draggable={isDraggable}
+      onDragStart={onDragStart} onDragEnter={onDragEnter} onDragEnd={onDragEnd}
+      onDragOver={e=>e.preventDefault()} onTouchStart={onTouchStart}
+      style={{display:'flex',alignItems:'center',gap:12,
+        background:isOver?'#f0f7f2':'#fff',
+        border:isOver?'1.5px solid #3a6644':'1.5px solid #e0d8cc',
+        borderRadius:10,padding:'11px 14px',marginBottom:7,
+        cursor:isDraggable?'grab':'default',
+        opacity:dragging?0.4:1,
+        transition:'border-color 0.15s,background 0.15s,opacity 0.15s',
+        boxShadow:isOver?'0 0 0 3px rgba(58,102,68,0.08)':'0 1px 3px rgba(42,42,36,0.05)',
+        userSelect:'none',touchAction:'none'}}>
+      {rank!==undefined&&<span style={{fontFamily:"'Playfair Display',serif",fontSize:'1.1rem',fontStyle:'italic',color:'#3a6644',minWidth:22,textAlign:'right',flexShrink:0,opacity:0.85}}>{rank}</span>}
+      {bucket&&<span style={{width:7,height:7,borderRadius:'50%',background:'rgba(58,102,68,0.2)',border:'1.5px solid #3a6644',flexShrink:0,margin:'0 2px'}}/>}
+      {isDraggable&&<span style={{color:'#c8c0b0',fontSize:16,flexShrink:0,padding:'0 2px'}}>⠿</span>}
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:'0.9rem',color:'#2a2a24',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{course.name}</div>
+        {course.location&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#9e9e8f',letterSpacing:'0.06em',marginTop:2}}>{course.location}</div>}
+      </div>
+      <button onClick={onRemove}
+        style={{background:'none',border:'none',color:'#c8c0b0',fontSize:18,cursor:'pointer',padding:'4px 6px',borderRadius:4,lineHeight:1,flexShrink:0}}
+        onMouseEnter={e=>e.target.style.color='#c0554a'}
+        onMouseLeave={e=>e.target.style.color='#c8c0b0'}>×</button>
+    </div>
+  );
+}
+
+// ── Search Overlay ────────────────────────────────────────────
+function SearchOverlay({query,setQuery,allFriends,onSelectGolfer,onClose,ME}){
+  const q=query.toLowerCase().trim();
+  const matchedGolfers=q.length<1?allFriends:allFriends.filter(f=>f.name.toLowerCase().includes(q));
+  const matchedCourses=q.length<2?[]:(() => {
+    const seen={},results=[];
+    allFriends.forEach(f=>{
+      [...(f.played||[]), ...(f.bucketList||[])].forEach(c=>{
+        if(!seen[c.courseId||c.name]&&(c.name.toLowerCase().includes(q)||(c.location||'').toLowerCase().includes(q))){
+          seen[c.courseId||c.name]=true;
+          const playedBy=allFriends.filter(ff=>(ff.played||[]).find(x=>x.courseId===c.courseId)).map(ff=>ff.name);
+          const wantedBy=allFriends.filter(ff=>(ff.bucketList||[]).find(x=>x.courseId===c.courseId)).map(ff=>ff.name);
+          results.push({...c,playedBy,wantedBy});
+        }
+      });
+    });
+    PRESET_COURSES.filter(c=>!seen[c.id]&&(c.name.toLowerCase().includes(q)||c.location.toLowerCase().includes(q))).slice(0,6).forEach(c=>{
+      seen[c.id]=true; results.push({...c,courseId:c.id,playedBy:[],wantedBy:[]});
+    });
+    return results.slice(0,8);
+  })();
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(42,42,36,0.5)',zIndex:400,display:'flex',flexDirection:'column'}}>
+      <div style={{background:'#fff',borderBottom:'1.5px solid #e0d8cc',padding:'14px 16px',display:'flex',alignItems:'center',gap:12}}>
+        <span style={{fontSize:15,color:'#3a6644',flexShrink:0}}>🔍</span>
+        <input autoFocus value={query} onChange={e=>setQuery(e.target.value)}
+          placeholder="Search golfers or courses…"
+          style={{flex:1,border:'none',outline:'none',fontFamily:"'Libre Baskerville',serif",fontSize:'0.95rem',color:'#2a2a24',background:'transparent'}}/>
+        <button onClick={onClose} style={{background:'none',border:'none',color:'#9e9e8f',fontSize:22,cursor:'pointer',lineHeight:1}}>×</button>
+      </div>
+      <div style={{flex:1,overflowY:'auto',background:'#faf8f4'}}>
+        <div style={{padding:'16px 16px 8px'}}>
+          <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.58rem',letterSpacing:'0.14em',textTransform:'uppercase',color:'#9e9e8f',marginBottom:10}}>
+            Golfers {q&&`· ${matchedGolfers.length} result${matchedGolfers.length!==1?'s':''}`}
+          </div>
+          {matchedGolfers.length===0
+            ?<div style={{fontStyle:'italic',color:'#b8b0a0',fontSize:'0.84rem',padding:'8px 0'}}>No golfers found.</div>
+            :matchedGolfers.map(f=>(
+              <div key={f.name} onClick={()=>onSelectGolfer(f.name)}
+                style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',background:'#fff',border:'1.5px solid #e0d8cc',borderRadius:10,cursor:'pointer',marginBottom:8}}>
+                <div style={{width:34,height:34,borderRadius:'50%',background:'#e8f0ea',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Playfair Display',serif",fontStyle:'italic',color:'#3a6644',fontSize:'0.95rem',flexShrink:0}}>{f.name[0].toUpperCase()}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontFamily:"'Playfair Display',serif",fontStyle:'italic',color:'#2a2a24',fontSize:'0.93rem'}}>{f.name}{f.name===ME&&<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.52rem',background:'#e8f0ea',color:'#3a6644',border:'1px solid rgba(58,102,68,0.3)',borderRadius:3,padding:'1px 5px',letterSpacing:'0.1em',textTransform:'uppercase',verticalAlign:'middle',marginLeft:6}}>You</span>}</div>
+                  <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.58rem',color:'#9e9e8f',marginTop:2}}>{(f.played||[]).length} played · {(f.bucketList||[]).length} on bucket list</div>
+                </div>
+                <span style={{color:'#c8c0b0',fontSize:18}}>›</span>
+              </div>
+            ))
+          }
+        </div>
+        {q.length>=2&&(
+          <div style={{padding:'8px 16px 20px'}}>
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.58rem',letterSpacing:'0.14em',textTransform:'uppercase',color:'#9e9e8f',marginBottom:10}}>
+              Courses · {matchedCourses.length} result{matchedCourses.length!==1?'s':''}
+            </div>
+            {matchedCourses.length===0
+              ?<div style={{fontStyle:'italic',color:'#b8b0a0',fontSize:'0.84rem',padding:'8px 0'}}>No courses found.</div>
+              :matchedCourses.map((c,i)=>(
+                <div key={i} style={{background:'#fff',border:'1.5px solid #e0d8cc',borderRadius:10,padding:'11px 14px',marginBottom:8}}>
+                  <div style={{fontSize:'0.88rem',color:'#2a2a24'}}>{c.name}</div>
+                  {c.location&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#9e9e8f',marginTop:2}}>{c.location}</div>}
+                  {(c.playedBy.length>0||c.wantedBy.length>0)&&(
+                    <div style={{marginTop:8,display:'flex',gap:8,flexWrap:'wrap'}}>
+                      {c.playedBy.length>0&&<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.56rem',color:'#3a6644',background:'#e8f0ea',border:'1px solid rgba(58,102,68,0.2)',borderRadius:4,padding:'2px 7px'}}>✓ Played by {c.playedBy.slice(0,3).join(', ')}{c.playedBy.length>3?` +${c.playedBy.length-3}`:''}</span>}
+                      {c.wantedBy.length>0&&<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.56rem',color:'#6b6b5e',background:'#f5f2ee',border:'1px solid #e0d8cc',borderRadius:4,padding:'2px 7px'}}>○ Wanted by {c.wantedBy.slice(0,3).join(', ')}{c.wantedBy.length>3?` +${c.wantedBy.length-3}`:''}</span>}
+                    </div>
+                  )}
+                </div>
+              ))
+            }
+          </div>
+        )}
+        {q.length<2&&<div style={{textAlign:'center',padding:'24px 0',color:'#b8b0a0',fontStyle:'italic',fontSize:'0.84rem'}}>Type to search courses…</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Setup Screen ──────────────────────────────────────────────
+function LoginScreen({onSignIn, loading}){
+  return(
+    <div style={{minHeight:'100vh',background:'#f2ece0',display:'flex',flexDirection:'column'}}>
+      <div style={{background:'#fff',borderBottom:'2px solid #3a6644',padding:'28px 24px 22px',textAlign:'center'}}>
+        <span style={{fontSize:24,display:'block',marginBottom:4}}>⛳</span>
+        <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'1.8rem',fontWeight:700,color:'#2a2a24'}}>Course Rank</h1>
+        <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.62rem',color:'#3a6644',letterSpacing:'0.2em',textTransform:'uppercase',marginTop:4}}>Golf Course Rankings</div>
+      </div>
+      <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'40px 20px'}}>
+        <div style={{width:'100%',maxWidth:360,textAlign:'center'}}>
+          <div style={{fontSize:48,marginBottom:16}}>🏌️</div>
+          <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:'1.6rem',color:'#2a2a24',marginBottom:8}}>Welcome to the Club</h2>
+          <p style={{color:'#9e9e8f',fontSize:'0.88rem',marginBottom:32,lineHeight:1.6}}>
+            Sign in to create your personal rankings and join the group scorecard. Your data syncs across all your devices automatically.
+          </p>
+          <button
+            onClick={onSignIn}
+            disabled={loading}
+            style={{
+              width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:12,
+              background:'#fff',border:'1.5px solid #d8d0c0',borderRadius:8,
+              padding:'13px 20px',cursor:loading?'default':'pointer',
+              boxShadow:'0 2px 8px rgba(42,42,36,0.08)',transition:'all 0.18s',
+              opacity:loading?0.6:1,
+            }}
+            onMouseEnter={e=>{if(!loading){e.currentTarget.style.borderColor='#3a6644';e.currentTarget.style.boxShadow='0 4px 12px rgba(42,42,36,0.12)';}}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#d8d0c0';e.currentTarget.style.boxShadow='0 2px 8px rgba(42,42,36,0.08)';}}
+          >
+            <svg width="20" height="20" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              <path fill="none" d="M0 0h48v48H0z"/>
+            </svg>
+            <span style={{fontFamily:"'Playfair Display',serif",fontSize:'1rem',fontWeight:700,color:'#2a2a24'}}>
+              {loading ? 'Signing in…' : 'Sign in with Google'}
+            </span>
+          </button>
+          <p style={{color:'#b8b0a0',fontSize:'0.72rem',marginTop:16,lineHeight:1.5,fontFamily:"'DM Mono',monospace"}}>
+            Your rankings sync across all your devices.<br/>Only shared with your group.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Config Warning ────────────────────────────────────────────
+function ConfigWarning(){
+  return(
+    <div style={{minHeight:'100vh',background:'#f2ece0',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'rgba(200,80,80,0.1)',border:'1.5px solid rgba(200,80,80,0.4)',borderRadius:10,padding:'24px 28px',maxWidth:480}}>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:'1.1rem',color:'#c05050',marginBottom:10}}>⚠ Firebase not connected</div>
+        <p style={{fontFamily:"'DM Mono',monospace",fontSize:'0.74rem',color:'#6b4040',lineHeight:1.8}}>
+          Open <strong>index.html</strong> in a text editor and paste your Firebase credentials into the <strong>FIREBASE_CONFIG</strong> block near the top of the file.<br/><br/>
+          See <strong>SETUP.md</strong> for step-by-step instructions.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────
+function App(){
+  const[user,setUser]=useState(null);          // Firebase Auth user object
+  const[authLoading,setAuthLoading]=useState(true); // waiting for auth state
+  const[signInLoading,setSignInLoading]=useState(false);
+  const[played,setPlayed]=useState([]);
+  const[bucket,setBucket]=useState([]);
+  const[friends,setFriends]=useState([]);
+  const[customCourses,setCustom]=useState([]);
+  const[tab,setTab]=useState('mine');
+  const[profileView,setProfile]=useState(null);
+  const[modal,setModal]=useState(null);
+  const[shareOpen,setShare]=useState(false);
+  const[searchOpen,setSearch]=useState(false);
+  const[searchQuery,setSearchQ]=useState('');
+  const[unsaved,setUnsaved]=useState(false);
+  const[savedFlash,setFlash]=useState(false);
+  const[loading,setLoading]=useState(false);
+  // Played list drag state
+  const[dragFrom,setDragFrom]=useState(null);
+  const[dragOver,setDragOver]=useState(null);
+  const touchDragFrom=useRef(null);
+  const touchDragOver=useRef(null);
+  const touchClone=useRef(null);
+  const touchStartY=useRef(null);
+  const touchStartX=useRef(null);
+  const touchDragging=useRef(false);
+  const touchHoverTimer=useRef(null);
+  const touchHoverCandidate=useRef(null);
+  // Bucket list drag state
+  const[bDragFrom,setBDragFrom]=useState(null);
+  const[bDragOver,setBDragOver]=useState(null);
+  const bTouchDragFrom=useRef(null);
+  const bTouchDragOver=useRef(null);
+  const bTouchClone=useRef(null);
+  const bTouchStartY=useRef(null);
+  const bTouchStartX=useRef(null);
+  const bTouchDragging=useRef(false);
+  const bTouchHoverTimer=useRef(null);
+  const bTouchHoverCandidate=useRef(null);
+  const bDragEnterTarget=useRef(null);
+
+  // Convenience — display name from Google profile
+  const golferName = user ? (user.displayName || user.email.split('@')[0]) : '';
+  // Firestore doc ID — use uid for uniqueness, never changes across devices
+  const userDocId  = user ? user.uid : null;
+
+  // ── Auth state listener — fires on page load, login, logout ──
+  useEffect(()=>{
+    if(!auth) { setAuthLoading(false); return; }
+    const unsub = auth.onAuthStateChanged(u=>{
+      setUser(u);
+      setAuthLoading(false);
+    });
+    return ()=>unsub();
+  },[]);
+
+  // Load data once we have a logged-in user
+  useEffect(()=>{ if(user) loadMyData(); else { setPlayed([]); setBucket([]); } },[user]);
+  useEffect(()=>{ if((tab==='group'||tab==='golfers') && user) loadFriends(); },[tab, user]);
+
+  // ── Firebase ops ──
+  async function loadMyData(){
+    if(!db||!userDocId) return; setLoading(true);
+    try{
+      // Load shared custom courses
+      const snap=await db.collection('courses').get();
+      const cc=[]; snap.forEach(d=>cc.push(d.data())); setCustom(cc);
+
+      // Load by uid (new format)
+      let doc=await db.collection('golfers').doc(userDocId).get();
+
+      // ── Migration: check if old name-based doc exists ──
+      // If user previously saved under their display name, migrate it to uid
+      if(!doc.exists && golferName){
+        const oldDoc=await db.collection('golfers').doc(golferName).get();
+        if(oldDoc.exists){
+          // Copy old data to new uid-based doc
+          const data=oldDoc.data();
+          await db.collection('golfers').doc(userDocId).set({...data, name:golferName, uid:userDocId, updatedAt:new Date()});
+          // Remove old doc to avoid duplicates in the group list
+          await db.collection('golfers').doc(golferName).delete();
+          doc=await db.collection('golfers').doc(userDocId).get();
+        }
+      }
+
+      if(doc.exists){setPlayed(doc.data().played||[]);setBucket(doc.data().bucketList||[]);}
+    }catch(e){console.error(e);}
+    setLoading(false);
+  }
+
+  async function loadFriends(){
+    if(!db) return;
+    try{
+      const snap=await db.collection('golfers').get();
+      const all=[]; snap.forEach(d=>all.push(d.data()));
+      all.sort((a,b)=>a.name===golferName?-1:b.name===golferName?1:a.name.localeCompare(b.name));
+      setFriends(all);
+    }catch(e){console.error(e);}
+  }
+
+  async function saveAll(){
+    if(!db||!userDocId) return;
+    try{
+      await db.collection('golfers').doc(userDocId).set({name:golferName,uid:userDocId,played,bucketList:bucket,updatedAt:new Date()});
+      setUnsaved(false); setFlash(true); setTimeout(()=>setFlash(false),2500);
+    }catch(e){alert('Save failed: '+e.message);}
+  }
+
+  async function saveCustomCourse(name,location){
+    const id=slugify(name);
+    const course={id,name,location,isCustom:true};
+    setCustom(c=>[...c,course]);
+    if(db) try{await db.collection('courses').doc(id).set(course);}catch(_){}
+    return course;
+  }
+
+  // ── Course actions ──
+  function addCourse(course,target){
+    const list=target==='played'?played:bucket;
+    if(list.find(c=>c.courseId===course.id)) return;
+    const item={id:uid(),courseId:course.id,name:course.name,location:course.location};
+    if(target==='played') setPlayed(p=>[...p,item]); else setBucket(b=>[...b,item]);
+    setUnsaved(true); setFlash(false);
+  }
+
+  async function confirmNew(name,loc){
+    const course=await saveCustomCourse(name,loc);
+    addCourse(course,modal.target);
+    setModal(null);
+  }
+
+  // ── Drag (mouse) ──
+  // ── Drag (mouse) ──
+  // dragEnterCount prevents firing on every tiny mouse movement within a card
+  const dragEnterTarget = useRef(null);
+  function onDragStart(i){setDragFrom(i);}
+  function onDragEnter(i,e){
+    // Only update dragOver when entering a genuinely different card element
+    if(e && e.currentTarget === dragEnterTarget.current) return;
+    dragEnterTarget.current = e ? e.currentTarget : null;
+    setDragOver(i);
+  }
+  function onDragEnd(){
+    dragEnterTarget.current = null;
+    if(dragFrom!==null&&dragOver!==null&&dragFrom!==dragOver){
+      const arr=[...played];const[m]=arr.splice(dragFrom,1);arr.splice(dragOver,0,m);
+      setPlayed(arr);setUnsaved(true);setFlash(false);
+    }
+    setDragFrom(null);setDragOver(null);
+  }
+
+  // ── Drag (touch) ──
+  // Threshold: finger must move at least 12px before drag tracking begins,
+  // and must dwell over a new card for 80ms before it registers as the new target.
+
+  function onTouchStart(e,i){
+    touchDragFrom.current=i; touchDragOver.current=i;
+    touchDragging.current=false;
+    touchStartX.current=e.touches[0].clientX;
+    touchStartY.current=e.touches[0].clientY;
+    touchHoverCandidate.current=null;
+    clearTimeout(touchHoverTimer.current);
+    // Don't create the ghost or set dragFrom until threshold crossed
+  }
+
+  function onTouchMove(e){
+    e.preventDefault();
+    const t=e.touches[0];
+    const dx=t.clientX-touchStartX.current;
+    const dy=t.clientY-touchStartY.current;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+
+    // Activate drag only after moving 12px
+    if(!touchDragging.current){
+      if(dist < 12) return;
+      touchDragging.current=true;
+      setDragFrom(touchDragFrom.current);
+      // Create ghost clone now that we know it's a real drag
+      const cards=document.querySelectorAll('[data-drag-index]');
+      const el=cards[touchDragFrom.current];
+      if(el){
+        const rect=el.getBoundingClientRect();
+        const clone=el.cloneNode(true);
+        clone.style.cssText=`position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.85;pointer-events:none;z-index:9999;border-radius:10px;box-shadow:0 8px 24px rgba(42,42,36,0.2);background:#fff;transform:scale(1.02);transition:none;`;
+        document.body.appendChild(clone);
+        touchClone.current=clone;
+      }
+    }
+
+    // Move ghost clone
+    if(touchClone.current){
+      const r=touchClone.current.getBoundingClientRect();
+      touchClone.current.style.left=(t.clientX-r.width/2)+'px';
+      touchClone.current.style.top=(t.clientY-r.height/2)+'px';
+    }
+
+    // Hit-test which card is underneath
+    if(touchClone.current) touchClone.current.style.display='none';
+    const el=document.elementFromPoint(t.clientX,t.clientY);
+    if(touchClone.current) touchClone.current.style.display='';
+    let tgt=el,found=null;
+    while(tgt&&tgt!==document.body){
+      const idx=tgt.getAttribute&&tgt.getAttribute('data-drag-index');
+      if(idx!==null){found=parseInt(idx,10);break;}
+      tgt=tgt.parentElement;
+    }
+
+    // Only update target after hovering over a new card for 80ms (debounce)
+    if(found!==null && found!==touchDragFrom.current){
+      if(found !== touchHoverCandidate.current){
+        touchHoverCandidate.current=found;
+        clearTimeout(touchHoverTimer.current);
+        touchHoverTimer.current=setTimeout(()=>{
+          if(found!==touchDragOver.current){
+            touchDragOver.current=found;
+            setDragOver(found);
+          }
+        }, 80);
+      }
+    }
+  }
+
+  function onTouchEnd(){
+    clearTimeout(touchHoverTimer.current);
+    if(touchClone.current){document.body.removeChild(touchClone.current);touchClone.current=null;}
+    if(touchDragging.current){
+      const from=touchDragFrom.current,to=touchDragOver.current;
+      if(from!==null&&to!==null&&from!==to){
+        const arr=[...played];const[m]=arr.splice(from,1);arr.splice(to,0,m);
+        setPlayed(arr);setUnsaved(true);setFlash(false);
+      }
+    }
+    touchDragFrom.current=null;touchDragOver.current=null;
+    touchDragging.current=false;touchHoverCandidate.current=null;
+    setDragFrom(null);setDragOver(null);
+  }
+
+
+  // ── Bucket list drag (mouse) ──
+  function onBDragStart(i){setBDragFrom(i);}
+  function onBDragEnter(i,e){
+    if(e && e.currentTarget===bDragEnterTarget.current) return;
+    bDragEnterTarget.current=e?e.currentTarget:null;
+    setBDragOver(i);
+  }
+  function onBDragEnd(){
+    bDragEnterTarget.current=null;
+    if(bDragFrom!==null&&bDragOver!==null&&bDragFrom!==bDragOver){
+      const arr=[...bucket];const[m]=arr.splice(bDragFrom,1);arr.splice(bDragOver,0,m);
+      setBucket(arr);setUnsaved(true);setFlash(false);
+    }
+    setBDragFrom(null);setBDragOver(null);
+  }
+
+  // ── Bucket list drag (touch) ──
+  function onBTouchStart(e,i){
+    bTouchDragFrom.current=i; bTouchDragOver.current=i;
+    bTouchDragging.current=false;
+    bTouchStartX.current=e.touches[0].clientX;
+    bTouchStartY.current=e.touches[0].clientY;
+    bTouchHoverCandidate.current=null;
+    clearTimeout(bTouchHoverTimer.current);
+  }
+  function onBTouchMove(e){
+    e.preventDefault();
+    const t=e.touches[0];
+    const dx=t.clientX-bTouchStartX.current;
+    const dy=t.clientY-bTouchStartY.current;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(!bTouchDragging.current){
+      if(dist<12) return;
+      bTouchDragging.current=true;
+      setBDragFrom(bTouchDragFrom.current);
+      const cards=document.querySelectorAll('[data-bdrag-index]');
+      const el=cards[bTouchDragFrom.current];
+      if(el){
+        const rect=el.getBoundingClientRect();
+        const clone=el.cloneNode(true);
+        clone.style.cssText=`position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;opacity:0.85;pointer-events:none;z-index:9999;border-radius:10px;box-shadow:0 8px 24px rgba(42,42,36,0.2);background:#fff;transform:scale(1.02);transition:none;`;
+        document.body.appendChild(clone);
+        bTouchClone.current=clone;
+      }
+    }
+    if(bTouchClone.current){
+      const r=bTouchClone.current.getBoundingClientRect();
+      bTouchClone.current.style.left=(t.clientX-r.width/2)+'px';
+      bTouchClone.current.style.top=(t.clientY-r.height/2)+'px';
+    }
+    if(bTouchClone.current) bTouchClone.current.style.display='none';
+    const el=document.elementFromPoint(t.clientX,t.clientY);
+    if(bTouchClone.current) bTouchClone.current.style.display='';
+    let tgt=el,found=null;
+    while(tgt&&tgt!==document.body){
+      const idx=tgt.getAttribute&&tgt.getAttribute('data-bdrag-index');
+      if(idx!==null){found=parseInt(idx,10);break;}
+      tgt=tgt.parentElement;
+    }
+    if(found!==null&&found!==bTouchDragFrom.current){
+      if(found!==bTouchHoverCandidate.current){
+        bTouchHoverCandidate.current=found;
+        clearTimeout(bTouchHoverTimer.current);
+        bTouchHoverTimer.current=setTimeout(()=>{
+          if(found!==bTouchDragOver.current){bTouchDragOver.current=found;setBDragOver(found);}
+        },80);
+      }
+    }
+  }
+  function onBTouchEnd(){
+    clearTimeout(bTouchHoverTimer.current);
+    if(bTouchClone.current){document.body.removeChild(bTouchClone.current);bTouchClone.current=null;}
+    if(bTouchDragging.current){
+      const from=bTouchDragFrom.current,to=bTouchDragOver.current;
+      if(from!==null&&to!==null&&from!==to){
+        const arr=[...bucket];const[m]=arr.splice(from,1);arr.splice(to,0,m);
+        setBucket(arr);setUnsaved(true);setFlash(false);
+      }
+    }
+    bTouchDragFrom.current=null;bTouchDragOver.current=null;
+    bTouchDragging.current=false;bTouchHoverCandidate.current=null;
+    setBDragFrom(null);setBDragOver(null);
+  }
+
+  // ── Bayesian leaderboard ──
+  function buildLB(){
+    const allF=[{name:golferName,played,bucketList:bucket},...friends];
+    const scores={},meta={};
+    allF.forEach(f=>{
+      (f.played||[]).forEach((c,i)=>{
+        const k=c.courseId||slugify(c.name);
+        const score=Math.max(10-i,1);
+        if(!scores[k]) scores[k]=[];
+        scores[k].push(score);
+        if(!meta[k]) meta[k]={name:c.name,location:c.location,people:[]};
+        meta[k].people.push(f.name);
+      });
+    });
+    const allScores=Object.values(scores).flat();
+    if(!allScores.length) return[];
+    const m=allScores.reduce((a,b)=>a+b,0)/allScores.length;
+    const C=allScores.length/Object.keys(scores).length;
+    const ranked=Object.entries(scores).map(([k,arr])=>{
+      const n=arr.length,sum=arr.reduce((a,b)=>a+b,0),ba=(C*m+sum)/(C+n);
+      return{k,ba,n};
+    }).sort((a,b)=>b.ba-a.ba).slice(0,10);
+    const maxBA=ranked[0]?.ba||1,minBA=ranked[ranked.length-1]?.ba||0,range=maxBA-minBA||1;
+    return ranked.map(({k,ba,n})=>({...meta[k],ba,n,pct:Math.round(40+((ba-minBA)/range)*60)}));
+  }
+
+  // ── Auth helpers ──
+  async function handleSignIn(){
+    if(!auth) return;
+    setSignInLoading(true);
+    try{
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await auth.signInWithPopup(provider);
+      // onAuthStateChanged will fire and set user automatically
+    }catch(e){
+      if(e.code !== 'auth/popup-closed-by-user') alert('Sign in failed: '+e.message);
+    }
+    setSignInLoading(false);
+  }
+
+  async function handleSignOut(){
+    if(!auth) return;
+    if(!confirm('Sign out of Course Rank?')) return;
+    await auth.signOut();
+    setPlayed([]); setBucket([]); setFriends([]);
+  }
+  function saveBar(showShare=false){
+    return(
+      <div style={{paddingTop:12,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+        <span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.62rem',color:'#b8b0a0'}}>{unsaved?'Unsaved changes':''}</span>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {showShare&&<button onClick={()=>setShare(true)} style={{display:'flex',alignItems:'center',gap:6,background:'#e8f0ea',border:'1.5px solid rgba(58,102,68,0.3)',borderRadius:7,color:'#3a6644',fontFamily:"'DM Mono',monospace",fontSize:'0.68rem',letterSpacing:'0.08em',textTransform:'uppercase',padding:'9px 14px',cursor:'pointer'}}>↗ Share</button>}
+          {savedFlash
+            ?<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.66rem',color:'#3a6644',letterSpacing:'0.1em'}}>✓ Saved</span>
+            :<button onClick={saveAll} style={{background:'#3a6644',border:'none',borderRadius:7,color:'#fff',fontFamily:"'DM Mono',monospace",fontSize:'0.7rem',letterSpacing:'0.1em',textTransform:'uppercase',padding:'9px 18px',cursor:'pointer'}}>Save & Share</button>}
+        </div>
+      </div>
+    );
+  }
+
+  function GolferCard({f}){
+    return(
+      <div className="rc" onClick={()=>setProfile(f.name)}
+        style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',background:'#faf8f4',border:'1.5px solid #e0d8cc',borderRadius:10,cursor:'pointer',marginBottom:8,transition:'all 0.18s'}}>
+        <div style={{width:36,height:36,borderRadius:'50%',background:'#e8f0ea',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Playfair Display',serif",fontStyle:'italic',color:'#3a6644',fontSize:'1rem',flexShrink:0}}>{f.name[0].toUpperCase()}</div>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:"'Playfair Display',serif",fontStyle:'italic',color:'#2a2a24',fontSize:'0.95rem'}}>
+            {f.name}{f.name===golferName&&<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.52rem',background:'#e8f0ea',color:'#3a6644',border:'1px solid rgba(58,102,68,0.3)',borderRadius:3,padding:'1px 5px',letterSpacing:'0.1em',textTransform:'uppercase',verticalAlign:'middle',marginLeft:6}}>You</span>}
+          </div>
+          <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#9e9e8f',marginTop:3}}>{(f.played||[]).length} played · {(f.bucketList||[]).length} on bucket list</div>
+        </div>
+        <span style={{color:'#c8c0b0',fontSize:18}}>›</span>
+      </div>
+    );
+  }
+
+  function ProfileView({name}){
+    const allF=[{name:golferName,played,bucketList:bucket},...friends];
+    const f=allF.find(x=>x.name===name);
+    if(!f) return null;
+    return(
+      <div style={{paddingTop:20}}>
+        <button onClick={()=>setProfile(null)} style={{background:'none',border:'none',color:'#9e9e8f',fontFamily:"'DM Mono',monospace",fontSize:'0.65rem',letterSpacing:'0.1em',textTransform:'uppercase',cursor:'pointer',padding:0,marginBottom:18,display:'flex',alignItems:'center',gap:6}}>← Back to Golfers</button>
+        <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:22,paddingBottom:18,borderBottom:'1px solid #ede8df'}}>
+          <div style={{width:48,height:48,borderRadius:'50%',background:'#e8f0ea',border:'1.5px solid rgba(58,102,68,0.2)',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Playfair Display',serif",fontStyle:'italic',color:'#3a6644',fontSize:'1.3rem',flexShrink:0}}>{f.name[0].toUpperCase()}</div>
+          <div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:'1.3rem',fontStyle:'italic',color:'#2a2a24'}}>{f.name}{f.name===golferName&&<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.52rem',background:'#e8f0ea',color:'#3a6644',border:'1px solid rgba(58,102,68,0.3)',borderRadius:3,padding:'1px 5px',letterSpacing:'0.1em',textTransform:'uppercase',verticalAlign:'middle',marginLeft:6}}>You</span>}</div>
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.62rem',color:'#9e9e8f',marginTop:3}}>{(f.played||[]).length} played · {(f.bucketList||[]).length} on bucket list</div>
+          </div>
+        </div>
+        {[['Rankings',f.played||[],true],['Bucket List',f.bucketList||[],false]].map(([title,list,ranked])=>(
+          <div key={title} style={{marginBottom:22}}>
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',letterSpacing:'0.16em',textTransform:'uppercase',color:'#9e9e8f',marginBottom:10,paddingBottom:7,borderBottom:'1px solid #ede8df'}}>{title}</div>
+            {list.length===0
+              ?<div style={{fontStyle:'italic',color:'#b8b0a0',fontSize:'0.84rem',padding:'8px 0'}}>Nothing here yet.</div>
+              :list.map((c,i)=>(
+                <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 0',borderBottom:i<list.length-1?'1px solid #f5f2ee':'none'}}>
+                  {ranked?<span style={{fontFamily:"'Playfair Display',serif",fontStyle:'italic',fontSize:'1rem',color:'#b8b0a0',minWidth:22,textAlign:'right'}}>{i+1}</span>
+                    :<span style={{width:7,height:7,borderRadius:'50%',background:'rgba(58,102,68,0.2)',border:'1.5px solid #3a6644',flexShrink:0,margin:'0 6px 0 4px'}}/>}
+                  <span style={{flex:1,fontSize:'0.86rem',color:'#2a2a24'}}>{c.name}</span>
+                  {c.location&&<span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#b8b0a0'}}>{c.location}</span>}
+                </div>
+              ))
+            }
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // ── Not configured ──
+  if(!configReady) return <ConfigWarning/>;
+
+  // ── Auth loading — show spinner while Firebase checks session ──
+  if(authLoading) return(
+    <div style={{minHeight:'100vh',background:'#f2ece0',display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{textAlign:'center'}}>
+        <span style={{fontSize:32,display:'block',marginBottom:12}}>⛳</span>
+        <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.7rem',color:'#9e9e8f',letterSpacing:'0.1em'}}>Loading…</div>
+      </div>
+    </div>
+  );
+
+  // ── Not signed in ──
+  if(!user) return <LoginScreen onSignIn={handleSignIn} loading={signInLoading}/>;
+
+  const lb=buildLB();
+  const allF=[{name:golferName,played,bucketList:bucket},...friends];
+  const sectionLabel=(text)=>(
+    <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',letterSpacing:'0.16em',textTransform:'uppercase',color:'#9e9e8f',marginBottom:12,paddingBottom:8,borderBottom:'1px solid #ede8df'}}>{text}</div>
+  );
+
+  return(
+    <>
+      <div className="app" style={{minHeight:'100vh',background:'#f2ece0',fontFamily:"'Libre Baskerville',Georgia,serif",color:'#2a2a24'}}>
+
+        {/* Header */}
+        <div style={{background:'#fff',borderBottom:'2px solid #3a6644',padding:'20px 20px 16px',position:'relative'}}>
+          <div style={{textAlign:'center'}}>
+            <span style={{fontSize:22,display:'block',marginBottom:3}}>⛳</span>
+            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:'1.8rem',fontWeight:700,color:'#2a2a24'}}>Course Rank</h1>
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#3a6644',letterSpacing:'0.2em',textTransform:'uppercase',marginTop:4}}>Golf Course Rankings</div>
+            <div onClick={handleSignOut} style={{fontFamily:"'DM Mono',monospace",fontSize:'0.58rem',color:'#9e9e8f',letterSpacing:'0.1em',marginTop:5,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+            {user.photoURL && <img src={user.photoURL} style={{width:16,height:16,borderRadius:'50%'}} alt=""/>}
+            {golferName} · sign out
+          </div>
+          </div>
+          <button onClick={()=>{setSearch(true);setSearchQ('');}}
+            style={{position:'absolute',top:16,right:16,background:'none',border:'1.5px solid #d8d0c0',borderRadius:8,padding:'7px 10px',cursor:'pointer',color:'#6b6b5e'}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor='#3a6644';e.currentTarget.style.color='#3a6644';}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor='#d8d0c0';e.currentTarget.style.color='#6b6b5e';}}>
+            🔍
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:'flex',maxWidth:580,margin:'0 auto',padding:'16px 16px 0'}}>
+          {[['mine','Played'],['bucket','Want to Play'],['group','Top Courses'],['golfers','Golfers']].map(([t,l],i,a)=>(
+            <button key={t} onClick={()=>{setTab(t);setProfile(null);}} style={{
+              flex:1,background:'transparent',border:'1.5px solid #d8d0c0',borderBottom:'none',
+              borderLeft:i>0?'none':undefined,
+              borderRadius:i===0?'8px 0 0 0':i===a.length-1?'0 8px 0 0':'0',
+              color:tab===t?'#3a6644':'#9e9e8f',
+              fontFamily:"'DM Mono',monospace",fontSize:'0.54rem',letterSpacing:'0.04em',lineHeight:1.35,
+              textTransform:'uppercase',padding:'10px 4px',cursor:'pointer',
+              ...(tab===t?{background:'#fff',borderColor:'#3a6644',borderBottomColor:'#fff'}:{}),
+            }}>{l}</button>
+          ))}
+        </div>
+
+        {/* Panel */}
+        <div style={{maxWidth:580,margin:'0 auto',padding:'0 16px 20px',background:'#fff',border:'1.5px solid #d8d0c0',borderTop:'none',borderRadius:'0 0 10px 10px',marginBottom:40}}>
+
+          {/* PLAYED */}
+          {tab==='mine'&&(
+            <div style={{paddingTop:20}}>
+              {sectionLabel("Courses I've Played — drag to rank")}
+              <Autocomplete placeholder="Search for a course…" onSelect={c=>addCourse(c,'played')} customCourses={customCourses} onAddNew={q=>setModal({target:'played',prefill:q})}/>
+              {played.length===0
+                ?<div style={{textAlign:'center',padding:'36px 0',color:'#b8b0a0',fontStyle:'italic',fontSize:'0.88rem'}}>No rounds yet — search for a course above.</div>
+                :<div onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+                  {played.map((c,i)=>(
+                    <CourseBubble key={c.id} course={c} rank={i+1} draggable={true} dataIndex={i}
+                      dragging={dragFrom===i} isOver={dragOver===i&&dragFrom!==i}
+                      onDragStart={()=>onDragStart(i)} onDragEnter={e=>onDragEnter(i,e)} onDragEnd={onDragEnd}
+                      onTouchStart={e=>onTouchStart(e,i)}
+                      onRemove={()=>{setPlayed(p=>p.filter(x=>x.id!==c.id));setUnsaved(true);}}/>
+                  ))}
+                </div>
+              }
+              {played.length>0&&saveBar(true)}
+            </div>
+          )}
+
+          {/* BUCKET LIST */}
+          {tab==='bucket'&&(
+            <div style={{paddingTop:20}}>
+              {sectionLabel("Courses I Want to Play — drag to reorder")}
+              <Autocomplete placeholder="Search for a course…" onSelect={c=>addCourse(c,'bucket')} customCourses={customCourses} onAddNew={q=>setModal({target:'bucket',prefill:q})}/>
+              {bucket.length===0
+                ?<div style={{textAlign:'center',padding:'36px 0',color:'#b8b0a0',fontStyle:'italic',fontSize:'0.88rem'}}>Your dream list is empty — add courses you want to play.</div>
+                :<div onTouchMove={onBTouchMove} onTouchEnd={onBTouchEnd}>
+                  {bucket.map((c,i)=>(
+                    <div
+                      key={c.id}
+                      data-bdrag-index={i}
+                      draggable
+                      onDragStart={()=>onBDragStart(i)}
+                      onDragEnter={e=>onBDragEnter(i,e)}
+                      onDragEnd={onBDragEnd}
+                      onDragOver={e=>e.preventDefault()}
+                      onTouchStart={e=>onBTouchStart(e,i)}
+                      style={{
+                        display:'flex',alignItems:'center',gap:12,
+                        background:bDragOver===i&&bDragFrom!==i?'#f0f7f2':'#fff',
+                        border:bDragOver===i&&bDragFrom!==i?'1.5px solid #3a6644':'1.5px solid #e0d8cc',
+                        borderRadius:10,padding:'11px 14px',marginBottom:7,
+                        cursor:'grab',opacity:bDragFrom===i?0.4:1,
+                        transition:'border-color 0.15s,background 0.15s,opacity 0.15s',
+                        boxShadow:bDragOver===i&&bDragFrom!==i?'0 0 0 3px rgba(58,102,68,0.08)':'0 1px 3px rgba(42,42,36,0.05)',
+                        userSelect:'none',touchAction:'none',
+                      }}>
+                      <span style={{color:'#c8c0b0',fontSize:16,flexShrink:0,padding:'0 2px'}}>⠿</span>
+                      <span style={{width:7,height:7,borderRadius:'50%',background:'rgba(58,102,68,0.2)',border:'1.5px solid #3a6644',flexShrink:0,margin:'0 2px'}}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:'0.9rem',color:'#2a2a24',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.name}</div>
+                        {c.location&&<div style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#9e9e8f',letterSpacing:'0.06em',marginTop:2}}>{c.location}</div>}
+                      </div>
+                      <button
+                        onClick={()=>{setBucket(b=>b.filter(x=>x.id!==c.id));setUnsaved(true);}}
+                        style={{background:'none',border:'none',color:'#c8c0b0',fontSize:18,cursor:'pointer',padding:'4px 6px',borderRadius:4,lineHeight:1,flexShrink:0}}
+                        onMouseEnter={e=>e.target.style.color='#c0554a'}
+                        onMouseLeave={e=>e.target.style.color='#c8c0b0'}>×</button>
+                    </div>
+                  ))}
+                </div>
+              }
+              {bucket.length>0&&saveBar(false)}
+            </div>
+          )}
+
+          {/* TOP COURSES */}
+          {tab==='group'&&(
+            <div style={{paddingTop:20}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}}>
+                <span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',color:'#9e9e8f',letterSpacing:'0.08em'}}>Bayesian avg · {allF.length} golfer{allF.length!==1?'s':''}</span>
+                <button onClick={loadFriends} style={{background:'none',border:'1.5px solid #d8d0c0',borderRadius:6,color:'#9e9e8f',fontFamily:"'DM Mono',monospace",fontSize:'0.6rem',letterSpacing:'0.06em',textTransform:'uppercase',padding:'5px 11px',cursor:'pointer'}}>↻ Refresh</button>
+              </div>
+              {lb.length===0
+                ?<div style={{textAlign:'center',padding:'36px 0',color:'#b8b0a0',fontStyle:'italic',fontSize:'0.88rem'}}>No courses ranked yet — add yours in Played.</div>
+                :lb.map((c,i)=>(
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:i<lb.length-1?'1px solid #f0ece4':'none'}}>
+                    <span style={{fontFamily:"'Playfair Display',serif",fontStyle:'italic',fontSize:'1.05rem',color:i<3?'#3a6644':'#b8b0a0',minWidth:22,textAlign:'right'}}>{i+1}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:'0.88rem',color:'#2a2a24',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.name}</div>
+                      <div style={{display:'flex',alignItems:'center',gap:8,marginTop:3,flexWrap:'wrap'}}>
+                        <span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.58rem',color:'#b8b0a0'}}>{c.people.slice(0,3).join(', ')}{c.people.length>3?` +${c.people.length-3}`:''}</span>
+                        <span style={{fontFamily:"'DM Mono',monospace",fontSize:'0.55rem',color:'#9e9e8f',background:'#f5f2ee',borderRadius:3,padding:'1px 5px',flexShrink:0}}>{c.n} {c.n===1?'rating':'ratings'} · {c.ba.toFixed(1)}</span>
+                      </div>
+                    </div>
+                    <div style={{width:64,height:3,background:'#ede8df',borderRadius:2,overflow:'hidden',flexShrink:0}}>
+                      <div style={{height:'100%',background:i<3?'#3a6644':'#7a9e85',borderRadius:2,width:c.pct+'%',transition:'width 0.4s ease'}}/>
+                    </div>
+                  </div>
+                ))
+              }
+            </div>
+          )}
+
+          {/* GOLFERS */}
+          {tab==='golfers'&&!profileView&&(
+            <div style={{paddingTop:20}}>
+              {sectionLabel(`${allF.length} golfer${allF.length!==1?'s':''} in the group`)}
+              {allF.map(f=><GolferCard key={f.name} f={f}/>)}
+            </div>
+          )}
+
+          {/* PROFILE */}
+          {tab==='golfers'&&profileView&&<ProfileView name={profileView}/>}
+
+        </div>
+      </div>
+
+      {/* Modals & overlays */}
+      {modal&&<AddModal prefill={modal.prefill} onConfirm={confirmNew} onClose={()=>setModal(null)}/>}
+      {shareOpen&&<ShareModal golferName={golferName} courses={played} onClose={()=>setShare(false)}/>}
+      {searchOpen&&(
+        <SearchOverlay
+          query={searchQuery} setQuery={setSearchQ}
+          allFriends={allF} ME={golferName}
+          onSelectGolfer={name=>{setSearch(false);setTab('golfers');setProfile(name);}}
+          onClose={()=>setSearch(false)}
+        />
+      )}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+
+<script>
+  // Register service worker for offline support and PWA install
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('SW registered:', reg.scope))
+        .catch(err => console.log('SW registration failed:', err));
+    });
+  }
+
+  // iOS PWA install prompt helper — show banner if not already installed
+  window.addEventListener('load', () => {
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isInStandalone = window.navigator.standalone;
+    const dismissed = sessionStorage.getItem('pwa-prompt-dismissed');
+    if (isIOS && !isInStandalone && !dismissed) {
+      const banner = document.getElementById('pwa-banner');
+      if (banner) {
+        setTimeout(() => { banner.style.transform = 'translateY(0)'; }, 2000);
+      }
+    }
+  });
+</script>
+
+<!-- iOS install prompt banner -->
+<div id="pwa-banner" style="
+  position:fixed;bottom:0;left:0;right:0;z-index:9000;
+  background:#fff;border-top:2px solid #3a6644;
+  padding:14px 16px 28px;
+  display:flex;align-items:flex-start;gap:12px;
+  transform:translateY(100%);
+  transition:transform 0.35s cubic-bezier(0.32,0.72,0,1);
+  box-shadow:0 -4px 20px rgba(42,42,36,0.12);
+  font-family:'Libre Baskerville',Georgia,serif;
+">
+  <span style="font-size:28px;flex-shrink:0;margin-top:2px">⛳</span>
+  <div style="flex:1">
+    <div style="font-family:'Playfair Display',serif;font-weight:700;font-size:0.95rem;color:#2a2a24;margin-bottom:3px">
+      Install Course Rank
+    </div>
+    <div style="font-size:0.78rem;color:#6b6b5e;line-height:1.5">
+      Tap <strong style="font-family:'DM Mono',monospace;font-size:0.72rem;background:#f5f2ee;padding:1px 5px;border-radius:3px">Share</strong> then
+      <strong style="font-family:'DM Mono',monospace;font-size:0.72rem;background:#f5f2ee;padding:1px 5px;border-radius:3px">Add to Home Screen</strong> to install
+    </div>
+  </div>
+  <button onclick="document.getElementById('pwa-banner').style.transform='translateY(100%)';sessionStorage.setItem('pwa-prompt-dismissed','1')"
+    style="background:none;border:none;color:#9e9e8f;font-size:20px;cursor:pointer;padding:0;line-height:1;flex-shrink:0">×</button>
+</div>
+
+</body>
+</html>

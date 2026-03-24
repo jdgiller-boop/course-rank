@@ -1,0 +1,24 @@
+{
+  "name": "Course Rank",
+  "short_name": "Course Rank",
+  "description": "Rank the golf courses you've played and compare with friends.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f2ece0",
+  "theme_color": "#3a6644",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
