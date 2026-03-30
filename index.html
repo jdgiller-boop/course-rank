@@ -1428,8 +1428,22 @@ function App(){
     try{
       const snap=await db.collection('golfers').get();
       const all=[]; snap.forEach(d=>all.push(d.data()));
-      all.sort((a,b)=>a.name===golferName?-1:b.name===golferName?1:a.name.localeCompare(b.name));
-      setFriends(all);
+
+      // Deduplicate by name — keeps the doc with most courses (handles migration leftovers)
+      const byName={};
+      all.forEach(f=>{
+        const key=(f.name||'').toLowerCase().trim();
+        if(!byName[key] || (f.played||[]).length > (byName[key].played||[]).length){
+          byName[key]=f;
+        }
+      });
+
+      // Exclude current user — they're prepended manually in allF
+      const others=Object.values(byName)
+        .filter(f=>(f.name||'').toLowerCase().trim() !== golferName.toLowerCase().trim())
+        .sort((a,b)=>a.name.localeCompare(b.name));
+
+      setFriends(others);
     }catch(e){console.error(e);}
   }
 
